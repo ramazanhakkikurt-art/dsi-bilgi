@@ -10,9 +10,15 @@ st.write("DSİ 18. Bölge Müdürlüğü Ödenek ve Harcama Durumu Canlı Takip 
 
 excel_yolu = "Harcama.xlsx"
 
+# Sayıları Türkiye formatına (1.234.567,89) çeviren fonksiyon
+def tr_format(val):
+    try:
+        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00 TL"
+
 if os.path.exists(excel_yolu):
     try:
-        # Excel'i doğrudan string/metin olarak oku ki hiçbir veri tipi hatası vermesin
         df = pd.read_excel(excel_yolu, sheet_name=None, dtype=str)
         sayfalar = list(df.keys())
         
@@ -22,7 +28,6 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Sayısal analiz için verileri güvenli şekilde sayıya çevir
         if 'SENE BASI ODENEGI' in data.columns and 'REVIZE ODENEK' in data.columns:
             st.subheader("💰 Genel Ödenek ve Harcama Özeti")
             
@@ -32,10 +37,10 @@ if os.path.exists(excel_yolu):
             kalan_odenek = pd.to_numeric(data['YILI ÖDENEĞİ KALAN'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce').sum() if 'YILI ÖDENEĞİ KALAN' in data.columns else (toplam_revize - toplam_harcama)
             
             m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Toplam Sene Başı Ödeneği", f"{toplam_basi:,.2f} TL")
-            m2.metric("Toplam Revize Ödenek", f"{toplam_revize:,.2f} TL")
-            m3.metric("Toplam Yılı Harcaması", f"{topham_harcama:,.2f} TL")
-            m4.metric("Kalan Ödenek Bakiyesi", f"{kalan_odenek:,.2f} TL")
+            m1.metric("Toplam Sene Başı Ödeneği", f"{tr_format(toplam_basi)} TL")
+            m2.metric("Toplam Revize Ödenek", f"{tr_format(toplam_revize)} TL")
+            m3.metric("Toplam Yılı Harcaması", f"{tr_format(toplam_harcama)} TL")
+            m4.metric("Kalan Ödenek Bakiyesi", f"{tr_format(kalan_odenek)} TL")
             
             st.subheader("📈 İş Türlerine Göre Ödenek Dağılımı")
             if 'İŞİN TÜRÜ' in data.columns:
@@ -48,7 +53,6 @@ if os.path.exists(excel_yolu):
         st.subheader("🔍 Akıllı İş/Proje Sorgulama")
         arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
         
-        # Arrow hatasını engellemek için dataframe'i tamamen temiz göster
         display_data = data.astype(str)
         if arama:
             mask = display_data.apply(lambda x: x.str.contains(arama, case=False)).any(axis=1)
