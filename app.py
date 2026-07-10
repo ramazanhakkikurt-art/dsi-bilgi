@@ -37,42 +37,42 @@ if os.path.exists(excel_yolu):
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
+        # Başlık satırını bul
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
-            if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ|İŞİN ADI|PROJE NO').any():
+            if row.astype(str).str.contains('İŞİN TÜRÜ|İŞİN ADI|SENE BASI').any():
                 header_row_idx = idx
                 break
                 
+        # Sütunları ata ve temizle
         columns = raw_data.loc[header_row_idx].astype(str).str.strip().tolist()
         data = raw_data.loc[header_row_idx + 1:].copy()
         data.columns = columns
         
-        # Sütun isimlerindeki tüm gizli boşlukları kökten temizle
-        data.columns = data.columns.str.strip()
-        
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Excel "Veri" sekmesindeki sütun isimlerini elle sabitliyoruz (Asla şaşmaz)
+        # Excel'deki orijinal ham sütun isimleri
         s_tur = "İŞİN TÜRÜ"
         s_adi = "İŞİN ADI"
-        s_basi = "SENE BAŞI ÖDENEĞİ"
-        s_revize = "REVİZE ÖDENEK"
-        s_harcama = "YILI HARCAMASI"
+        s_basi = "SENE BASI ODENEGI"
+        s_revize = "REVIZE ODENEK"
+        s_harcama = "YILI HARCAMA"
+        s_kalan = "YILI ÖDENEĞİ KALAN"
         s_perf = "PERFORMANS"
         
-        # Sayısal dönüşümleri yap
+        # Sayısal dönüşümler
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
         data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # Excel'deki toplam satırları varsa temizle, saf kayıtları al
+        # Toplam satırlarını ayıkla
         saf_veri = data[
             (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
             (data[s_tur].fillna("").astype(str).str.strip() != "")
         ].copy()
         
-        # --- ÜST ÖZET METRİKLER ---
+        # --- ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         t_basi = saf_veri['Basi_Num'].sum()
         t_revize = saf_veri['Revize_Num'].sum()
@@ -94,50 +94,36 @@ if os.path.exists(excel_yolu):
             fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig, use_container_width=True)
             
-        # Gösterilecek veri tablosu alanları
+        # Gösterim veri çerçevesini formatla
         display_df = pd.DataFrame()
         display_df["İŞİN TÜRÜ"] = saf_veri[s_tur].astype(str)
         display_df["İŞİN ADI"] = saf_veri[s_adi].astype(str)
-        display_df["SENE BAŞI ÖDENEĞİ"] = saf_veri['Basi_Num']
-        display_df["REVİZE ÖDENEK"] = saf_veri['Revize_Num']
-        display_df["YILI HARCAMASI"] = saf_veri['Harcama_Num']
-        display_df["YILI ÖDENEĞİ KALAN"] = saf_veri['Kalan_Num']
-        display_df["PERFORMANS_DURUMU"] = saf_veri[s_perf].fillna("0").astype(str).str.strip().str.replace(".0", "", regex=False)
+        display_df["SENE BAŞI ÖDENEĞİ"] = saf_veri['Basi_Num'].apply(tr_format)
+        display_df["REVİZE ÖDENEK"] = saf_veri['Revize_Num'].apply(tr_format)
+        display_df["YILI HARCAMASI"] = saf_veri['Harcama_Num'].apply(tr_format)
+        display_df["YILI ÖDENEĞİ KALAN"] = saf_veri['Kalan_Num'].apply(tr_format)
+        display_df["PERF_KONTROL"] = saf_veri[s_perf].fillna("0").astype(str).str.strip().str.replace(".0", "", regex=False)
         
         # --- TABLO 1: GENEL PROJE LİSTESİ ---
         st.subheader("📋 Genel İş ve Proje Listesi (Tümü)")
         st.dataframe(
             display_df[["İŞİN TÜRÜ", "İŞİN ADI", "SENE BAŞI ÖDENEĞİ", "REVİZE ÖDENEK", "YILI HARCAMASI", "YILI ÖDENEĞİ KALAN"]],
             use_container_width=True,
-            hide_index=True,
-            column_config={
-                "SENE BAŞI ÖDENEĞİ": st.column_config.NumberColumn(format="%.2f TL"),
-                "REVİZE ÖDENEK": st.column_config.NumberColumn(format="%.2f TL"),
-                "YILI HARCAMASI": st.column_config.NumberColumn(format="%.2f TL"),
-                "YILI ÖDENEĞİ KALAN": st.column_config.NumberColumn(format="%.2f TL")
-            }
+            hide_index=True
         )
         
         # --- TABLO 2: SADECE PERFORMANS İŞLERİ ---
         st.subheader("🎯 Sadece Performans Takibindeki İşler")
-        
-        # Sadece değeri 1 olan performans kayıtlarını süzüyoruz
-        perf_df = display_df[display_df["PERFORMANS_DURUMU"] == "1"].copy()
+        perf_df = display_df[display_df["PERF_KONTROL"] == "1"].copy()
         
         if not perf_df.empty:
             st.dataframe(
                 perf_df[["İŞİN TÜRÜ", "İŞİN ADI", "SENE BAŞI ÖDENEĞİ", "REVİZE ÖDENEK", "YILI HARCAMASI", "YILI ÖDENEĞİ KALAN"]],
                 use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "SENE BAŞI ÖDENEĞİ": st.column_config.NumberColumn(format="%.2f TL"),
-                    "REVİZE ÖDENEK": st.column_config.NumberColumn(format="%.2f TL"),
-                    "YILI HARCAMASI": st.column_config.NumberColumn(format="%.2f TL"),
-                    "YILI ÖDENEĞİ KALAN": st.column_config.NumberColumn(format="%.2f TL")
-                }
+                hide_index=True
             )
         else:
-            st.info("Bu sayfada performans işi olarak işaretlenmiş (değeri 1 olan) bir kayıt bulunamadı.")
+            st.info("Bu sayfada performans işi olarak işaretlenmiş (1 olan) kayıt bulunamadı.")
             
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
