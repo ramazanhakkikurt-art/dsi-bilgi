@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import os
-from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
 
@@ -32,9 +31,12 @@ def tr_format(val):
     except:
         return "0,00"
 
+# Hangi ana başlıkların açık olduğunu hafızada tutmak için session_state başlatıyoruz
+if 'acik_sektorler' not in st.session_state:
+    st.session_state.acik_sektorler = set()
+
 if os.path.exists(excel_yolu):
     try:
-        # Excel'i okuyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
@@ -53,7 +55,7 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        s_etiket = columns[0] # B Sütunu (İşin Türü / Sektör)
+        s_etiket = columns[0]
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
@@ -87,11 +89,11 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- GERÇEK EXCEL PİVOT TABLO ALANI ---
-        st.subheader("🔍 Orijinal Pivot ve Alt İş Takip Tablosu")
+        # --- DİNAMİK AÇILIR KAPANIR TABLO MANTIĞI ---
+        st.subheader("📋 Yatırım ve Proje İzleme Tablosu")
+        st.info("Aşağıdaki listeden ana iş kalemlerinin üzerine tıklayarak alt projelerini Excel düzeninde açıp kapatabilirsiniz.")
         
-        # Ag-Grid için veri setini hazırlıyoruz
-        # Ana başlıkları (Sektörleri) belirlemek için bir mantık kuruyoruz
+        # Ana başlıkları tespit et
         ana_isler = []
         for x in data[s_etiket].fillna("").astype(str):
             x_temiz = x.strip()
@@ -99,51 +101,70 @@ if os.path.exists(excel_yolu):
                 if x_temiz not in ana_isler:
                     ana_isler.append(x_temiz)
         
-        # Tabloya ait satırların hangi ana başlığa ait olduğunu eşleştiriyoruz (Hiyerarşi Grubu)
-        grup_kolon = []
-        guncel_grup = "DİĞER"
+        # Tablo satırlarını dinamik oluşturma
+        final_rows = []
         
-        for val in data[s_etiket].fillna("").astype(str):
-            val_temiz = val.strip()
-            if val_temiz in ana_isler:
-                guncel_grup = val_temiz
-            grup_kolon.append(guncel_grup)
+        for idx, row in data.iterrows():
+            val = str(row[s_etiket]).strip()
             
-        grid_data = pd.DataFrame()
-        grid_data['Ana İş Kalemi (Sektör)'] = grup_kolon
-        grid_data['İŞİN ADI / DETAYI'] = data[s_etiket].fillna("").astype(str)
-        grid_data[s_basi] = data['Basi_Num'].apply(tr_format)
-        grid_data[s_revize] = data['Revize_Num'].apply(tr_format)
-        grid_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
-        grid_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
-        
-        # Diğer ek sütunları ekle
-        for col in columns:
-            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
-                grid_data[col] = data[col].fillna("").astype(str)
+            # Eğer satır bir ana başlıksa
+            if val in ana_isler:
+                # Açık mı kapalı mı kontrol et, başına işaret koy
+                durum_isareti = "▼" if val in st.session_state.acik_sektorler else "►"
                 
-        # Toplam satırlarını grid içinden gizle (Karmaşayı önlemek için)
-        grid_data = grid_data[~grid_data['İŞİN ADI / DETAYI'].str.contains('Toplam|TOPLAM', case=False)]
-        
-        # AG-GRID YAPILANDIRMASI (Excel Ağaç Görünümü Aktif Ediliyor)
-        gb = GridOptionsBuilder.from_dataframe(grid_data)
-        gb.configure_column('Ana İş Kalemi (Sektör)', rowGroup=True, hide=True) # Sektöre göre grupla ve o sütunu gizle
-        gb.configure_column('İŞİN ADI / DETAYI', width=300)
-        gb.configure_grid_options(animateRows=True, groupDisplayType='groupRows') # Satır içi açılır kapanır pivot yapısı
-        
-        gridOptions = gb.build()
-        
-        # Tabloyu Ekrana Basıyoruz
-        AgGrid(
-            grid_data,
-            gridOptions=gridOptions,
-            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-            update_mode=GridUpdateMode.MODEL_CHANGED,
-            fit_columns_on_grid_load=True,
-            theme='balham', # Kurumsal, temiz ve düz tablo teması
-            enable_enterprise_modules=True
-        )
-        
+                yeni_satir = row.copy()
+                yeni_satir[s_etiket] = f"{durum_isareti} {val} (ANA BAŞLIK)"
+                final_rows.append(yeni_satir)
+                
+                # Eğer bu ana başlık açıksa, altına gelecek alt işleri Excel sırasına göre ekle
+                if val in st.session_state.acik_sektorler:
+                    idx_list = data.index.tolist()
+                    start_pos = idx_list.index(idx)
+                    
+                    for p in idx_list[start_pos + 1:]:
+                        sub_val = str(data.loc[p, s_etiket]).strip()
+                        if sub_val in ana_isler or "Toplam" in sub_val or "TOPLAM" in sub_val:
+                            break
+                        
+                        sub_row = data.loc[p].copy()
+                        sub_row[s_etiket] = f"    └── {sub_val}" # Sağa hizalı alt proje görüntüsü
+                        final_rows.append(sub_row)
+                        
+            # Toplam satırlarını doğrudan ekle (her zaman görünür kalsın)
+            elif "Toplam" in val or "TOPLAM" in val:
+                final_rows.append(row)
+                
+        # Tabloyu dataframe formatına geri dönüştür
+        if final_rows:
+            display_df = pd.DataFrame(final_rows)
+            
+            # Sayı formatlamalarını uygula
+            final_display = pd.DataFrame()
+            final_display["İŞİN ADI / GRUBU"] = display_df[s_etiket]
+            final_display[s_basi] = display_df['Basi_Num'].apply(tr_format)
+            final_display[s_revize] = display_df['Revize_Num'].apply(tr_format)
+            final_display[s_harcama] = display_df['Harcama_Num'].apply(tr_format)
+            final_display[s_kalan] = display_df['Kalan_Num'].apply(tr_format)
+            
+            for col in columns:
+                if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                    final_display[col] = display_df[col].fillna("").astype(str)
+            
+            # --- TIKLAMA ETKİLEŞİMİ (KUTUSUZ, DOĞRUDAN SEÇİM) ---
+            secilen_satirlar = st.multiselect(
+                "Açmak veya Kapatmak İstediğiniz Sektörleri Seçin:",
+                options=ana_isler,
+                default=list(st.session_state.acik_sektorler)
+            )
+            
+            # Hafızayı güncelle ve sayfayı yenile
+            if set(secilen_satirlar) != st.session_state.acik_sektorler:
+                st.session_state.acik_sektorler = set(secilen_satirlar)
+                st.rerun()
+                
+            # Ana Düz Tabloyu Ekrana Bas
+            st.dataframe(final_display, use_container_width=True, hide_index=True)
+            
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
 else:
