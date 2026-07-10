@@ -25,6 +25,12 @@ def temiz_sayi_yap(val):
         except:
             return 0.0
 
+def tr_format(val):
+    try:
+        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except:
+        return "0,00"
+
 if os.path.exists(excel_yolu):
     try:
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
@@ -45,68 +51,31 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Sütunları netleştir
-        s_tur = columns[0]   # B Sütunu: İŞİN TÜRÜ
-        s_adi = columns[1]   # C Sütunu: İŞİN ADI
+        s_etiket = columns[0]
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
-        # Sayısal alanları temizle
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
         data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # Excel'deki toplam satırlarını temizle
-        saf_veri = data[
-            (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
-            (data[s_tur].fillna("").astype(str).str.strip() != "")
-        ].copy()
-        
-        # --- ÜST ÖZET METRİKLER ---
+        # --- ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{saf_veri['Basi_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{saf_veri['Revize_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>YILI HARCAMASI</h4><h3 style='color:#34d399; font-size:20px;'>{saf_veri['Harcama_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{saf_veri['Kalan_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- EXCEL HİYERARŞİ YAPISI ---
-        st.subheader("🔍 Hiyerarşik İş ve Proje Grubu Tablosu")
+        toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
+        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         
-        # Mükerrer sütun hatasını engellemek için pivotu doğrudan sayısal sütunlar üzerinden yapıyoruz
-        pivot_df = pd.pivot_table(
-            saf_veri,
-            index=[s_tur, s_adi],
-            values=['Basi_Num', 'Revize_Num', 'Harcama_Num', 'Kalan_Num'],
-            aggfunc='sum'
-        ).reset_index()
-        
-        # Görüntülenecek dataframe'i oluştur ve sütun isimlerini temizle
-        final_df = pd.DataFrame()
-        final_df["İŞİN TÜRÜ (ANA GRUP)"] = pivot_df[s_tur].astype(str)
-        final_df["İŞİN ADI / ALT PROJE"] = pivot_df[s_adi].astype(str)
-        final_df["SENE BAŞI ÖDENEĞİ"] = pivot_df['Basi_Num']
-        final_df["REVİZE ÖDENEK"] = pivot_df['Revize_Num']
-        final_df["YILI HARCAMASI"] = pivot_df['Harcama_Num']
-        final_df["YILI ÖDENEĞİ KALAN"] = pivot_df['Kalan_Num']
-        
-        # Tabloyu jilet gibi ekrana bas
-        st.dataframe(
-            final_df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "SENE BAŞI ÖDENEĞİ": st.column_config.NumberColumn(format="%.2f TL"),
-                "REVİZE ÖDENEK": st.column_config.NumberColumn(format="%.2f TL"),
-                "YILI HARCAMASI": st.column_config.NumberColumn(format="%.2f TL"),
-                "YILI ÖDENEĞİ KALAN": st.column_config.NumberColumn(format="%.2f TL")
-            }
-        )
-        
-    except Exception as e:
-        st.error(f"Veri işlenirken bir hata oluştu: {e}")
-else:
-    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
+        if not toplam_satiri.empty:
+            t_basi = temiz_sayi_yap(toplam_satiri[s_basi].values[0])
+            t_revize = temiz_sayi_yap(toplam_satiri[s_revize].values[0])
+            t_harcama = temiz_sayi_yap(toplam_satiri[s_harcama].values[0])
+            t_kalan = t_revize - t_harcama
+        else:
+            t_basi = metrik_data['Basi_Num'].sum()
+            t_revize = metrik_data['Revize_Num'].sum()
+            t_harcama = metrik_data['Harcama_Num'].sum()
+            t_kalan = t_rev
