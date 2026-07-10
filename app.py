@@ -33,14 +33,12 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
-        # Excel hiyerarşisini doğrudan okuyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
-        # Başlık satırını bul
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ|İŞİN ADI').any():
@@ -53,7 +51,6 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Sütun dinamiklerini yakala
         s_etiket = columns[0]
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
@@ -69,7 +66,6 @@ if os.path.exists(excel_yolu):
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
         
-        # Toplam satırlarını çift saymamak için ayıkla
         metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
         
@@ -89,21 +85,25 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- İSTEDİĞİN EKSTRA ETKİLEŞİMLİ PİVOT TABLO ALANI ---
-        st.subheader("📋 Seçmeli Alt İş Listesi")
-        st.info("Aşağıdaki listeden bir ana iş seçtiğinizde, tıpkı Excel'deki gibi altındaki tüm detaylı işler ödenekleriyle sıralanır.")
+        # --- PİVOT GÖRÜNÜMLÜ TEK ANA TABLO ---
+        st.subheader("🔍 Akıllı Yatırım ve Proje Takip Tablosu")
         
-        # Ana sektörleri belirle (büyük harfli olan ve toplam içermeyen satırlar)
-        ana_kalemler = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique().tolist()
-        
-        # Listeden sadece ana başlık niteliğindekileri süz
-        ana_isler = [x for x in ana_kalemler if x.isupper() or len(x) < 40]
-        
-        secilen_is = st.selectbox("Tıklamak istediğiniz Ana İş Kalemini Seçin:", ["Tüm Listeyi Düz Göster"] + ana_isler)
-        
-        # Tabloyu formatla
         display_data = pd.DataFrame()
-        display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
+        
+        # Hiyerarşiyi görselleştirmek için isim sütununu düzenliyoruz
+        düzenlenmiş_isimler = []
+        for val in data[s_etiket].fillna("").astype(str):
+            # Eğer satır tamamen büyük harfse ana başlıktır, olduğu gibi bırak
+            if val.isupper() and "TOPLAM" not in val:
+                düzenlenmiş_isimler.append(f"📁 {val}")
+            # Toplam satırı ise belirgin yap
+            elif "Toplam" in val or "TOPLAM" in val:
+                düzenlenmiş_isimler.append(f"📊 {val}")
+            # Alt iş ise başına kırılım işareti koyup içeri itiyoruz
+            else:
+                düzenlenmiş_isimler.append(f"    └── {val}")
+                
+        display_data[s_etiket] = düzenlenmiş_isimler
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
         display_data[s_revize] = data['Revize_Num'].apply(tr_format)
         display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
@@ -112,25 +112,12 @@ if os.path.exists(excel_yolu):
         for col in columns:
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
-        
-        if secilen_is != "Tüm Listeyi Düz Göster":
-            # Seçilen ana iş kalemini bul ve Excel'de onun hemen altında yer alan (bir sonraki ana başlığa kadar olan) alt işleri yakala
-            idx_list = data.index.tolist()
-            start_idx = data[data[s_etiket] == secilen_is].index[0]
-            start_pos = idx_list.index(start_idx)
-            
-            sub_rows = []
-            sub_rows.append(display_data.loc[start_idx]) # Ana başlığın kendisi
-            
-            for p in idx_list[start_pos + 1:]:
-                val = str(data.loc[p, s_etiket]).strip()
-                # Eğer yeni bir büyük harfli ana başlığa geldiyse veya toplam satırıysa dur
-                if val in ana_isler or 'Toplam' in val or 'TOPLAM' in val:
-                    break
-                sub_rows.append(display_data.loc[p])
                 
-            filtered_display = pd.DataFrame(sub_rows)
-            st.dataframe(filtered_display, use_container_width=True, hide_index=True)
+        # Arama kutusu her zaman hazır
+        arama = st.text_input("Tablo içinde hızlı arama yapın (İş adı, yer vb.):")
+        if arama:
+            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
         else:
             st.dataframe(display_data, use_container_width=True, hide_index=True)
             
