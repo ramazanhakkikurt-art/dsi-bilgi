@@ -33,6 +33,7 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
+        # Excel'i formatını bozmadan string olarak okuyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
@@ -57,6 +58,7 @@ if os.path.exists(excel_yolu):
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
+        # Sayısal hesaplamalar
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
@@ -66,8 +68,8 @@ if os.path.exists(excel_yolu):
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
         
-        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
+        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         
         if not toplam_satiri.empty:
             t_basi = temiz_sayi_yap(toplam_satiri[s_basi].values[0])
@@ -85,25 +87,12 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- PİVOT GÖRÜNÜMLÜ TEK ANA TABLO ---
-        st.subheader("🔍 Akıllı Yatırım ve Proje Takip Tablosu")
+        # --- TABLO ALANI (Excel Formatını Birebir Koruyan Yapı) ---
+        st.subheader("🔍 Akıllı İş/Proje Sorgulama")
         
         display_data = pd.DataFrame()
-        
-        # Hiyerarşiyi görselleştirmek için isim sütununu düzenliyoruz
-        düzenlenmiş_isimler = []
-        for val in data[s_etiket].fillna("").astype(str):
-            # Eğer satır tamamen büyük harfse ana başlıktır, olduğu gibi bırak
-            if val.isupper() and "TOPLAM" not in val:
-                düzenlenmiş_isimler.append(f"📁 {val}")
-            # Toplam satırı ise belirgin yap
-            elif "Toplam" in val or "TOPLAM" in val:
-                düzenlenmiş_isimler.append(f"📊 {val}")
-            # Alt iş ise başına kırılım işareti koyup içeri itiyoruz
-            else:
-                düzenlenmiş_isimler.append(f"    └── {val}")
-                
-        display_data[s_etiket] = düzenlenmiş_isimler
+        # Excel'deki ham boşlukları ve hiyerarşiyi korumak için doğrudan hücre değerini string yapıyoruz
+        display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
         display_data[s_revize] = data['Revize_Num'].apply(tr_format)
         display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
@@ -113,8 +102,7 @@ if os.path.exists(excel_yolu):
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
                 
-        # Arama kutusu her zaman hazır
-        arama = st.text_input("Tablo içinde hızlı arama yapın (İş adı, yer vb.):")
+        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
         if arama:
             mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
             st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
