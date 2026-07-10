@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import os
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
@@ -15,7 +14,7 @@ def tr_format(val):
     try:
         return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     except:
-        return "0,00 TL"
+        return "0,00"
 
 if os.path.exists(excel_yolu):
     try:
@@ -41,14 +40,6 @@ if os.path.exists(excel_yolu):
             m2.metric("Toplam Revize Ödenek", f"{tr_format(toplam_revize)} TL")
             m3.metric("Toplam Yılı Harcaması", f"{tr_format(toplam_harcama)} TL")
             m4.metric("Kalan Ödenek Bakiyesi", f"{tr_format(kalan_odenek)} TL")
-            
-            st.subheader("📈 İş Türlerine Göre Ödenek Dağılımı")
-            if 'İŞİN TÜRÜ' in data.columns:
-                grafik_data = data.copy()
-                grafik_data['REVIZE ODENEK_NUM'] = pd.to_numeric(grafik_data['REVIZE ODENEK'].str.replace('.', '', regex=False).str.replace(',', '.', regex=False), errors='coerce')
-                g_ozet = grafik_data.groupby('İŞİN TÜRÜ')['REVIZE ODENEK_NUM'].sum().reset_index()
-                fig = px.bar(g_ozet, x='İŞİN TÜRÜ', y='REVIZE ODENEK_NUM', color='İŞİN TÜRÜ', labels={'REVIZE ODENEK_NUM':'Revize Ödenek (TL)'})
-                st.plotly_chart(fig, use_container_width=True)
         
         st.subheader("🔍 Akıllı İş/Proje Sorgulama")
         arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
