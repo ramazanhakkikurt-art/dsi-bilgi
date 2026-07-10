@@ -43,30 +43,30 @@ if os.path.exists(excel_yolu):
                 header_row_idx = idx
                 break
                 
-        # Başlıkları al ve sağındaki solundaki tüm gizli boşlukları temizle (strip)
         columns = raw_data.loc[header_row_idx].astype(str).str.strip().tolist()
         data = raw_data.loc[header_row_idx + 1:].copy()
         data.columns = columns
         
-        # DataFrame'in kendi sütun indekslerindeki boşlukları da tamamen kazıyalım
+        # Sütun isimlerindeki tüm gizli boşlukları kökten temizle
         data.columns = data.columns.str.strip()
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Temizlenmiş sütun isimleri üzerinden dinamik tespit
-        s_tur = [c for c in data.columns if 'TÜRÜ' in c or 'TURU' in c][0]
-        s_adi = [c for c in data.columns if 'ADI' in c or 'İŞ' in c or 'is_adi' in c][0]
-        s_basi = [c for c in data.columns if 'SENE' in c or 'BAŞI' in c or 'BASI' in c][0]
-        s_revize = [c for c in data.columns if 'REVİZE' in c or 'REVIZE' in c][0]
-        s_harcama = [c for c in data.columns if 'HARCAMA' in c or 'YILI' in c][0]
-        s_perf = [c for c in data.columns if 'PERFORMANS' in c or 'PERF' in c][0]
+        # Excel "Veri" sekmesindeki sütun isimlerini elle sabitliyoruz (Asla şaşmaz)
+        s_tur = "İŞİN TÜRÜ"
+        s_adi = "İŞİN ADI"
+        s_basi = "SENE BAŞI ÖDENEĞİ"
+        s_revize = "REVİZE ÖDENEK"
+        s_harcama = "YILI HARCAMASI"
+        s_perf = "PERFORMANS"
         
+        # Sayısal dönüşümleri yap
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
         data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # Toplam satırlarını temizle, saf kayıtları filtrele
+        # Excel'deki toplam satırları varsa temizle, saf kayıtları al
         saf_veri = data[
             (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
             (data[s_tur].fillna("").astype(str).str.strip() != "")
@@ -94,7 +94,7 @@ if os.path.exists(excel_yolu):
             fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig, use_container_width=True)
             
-        # Gösterim veri tablosu şablonu
+        # Gösterilecek veri tablosu alanları
         display_df = pd.DataFrame()
         display_df["İŞİN TÜRÜ"] = saf_veri[s_tur].astype(str)
         display_df["İŞİN ADI"] = saf_veri[s_adi].astype(str)
@@ -102,7 +102,7 @@ if os.path.exists(excel_yolu):
         display_df["REVİZE ÖDENEK"] = saf_veri['Revize_Num']
         display_df["YILI HARCAMASI"] = saf_veri['Harcama_Num']
         display_df["YILI ÖDENEĞİ KALAN"] = saf_veri['Kalan_Num']
-        display_df["PERFORMANS_KONTROL"] = saf_veri[s_perf].fillna("0").astype(str).str.strip().str.replace(".0", "", regex=False)
+        display_df["PERFORMANS_DURUMU"] = saf_veri[s_perf].fillna("0").astype(str).str.strip().str.replace(".0", "", regex=False)
         
         # --- TABLO 1: GENEL PROJE LİSTESİ ---
         st.subheader("📋 Genel İş ve Proje Listesi (Tümü)")
@@ -121,8 +121,8 @@ if os.path.exists(excel_yolu):
         # --- TABLO 2: SADECE PERFORMANS İŞLERİ ---
         st.subheader("🎯 Sadece Performans Takibindeki İşler")
         
-        # Excel'deki 1, 1.0 veya string "1" durumlarını mutlak yakalamak için süzgeç
-        perf_df = display_df[display_df["PERFORMANS_KONTROL"] == "1"].copy()
+        # Sadece değeri 1 olan performans kayıtlarını süzüyoruz
+        perf_df = display_df[display_df["PERFORMANS_DURUMU"] == "1"].copy()
         
         if not perf_df.empty:
             st.dataframe(
@@ -137,7 +137,7 @@ if os.path.exists(excel_yolu):
                 }
             )
         else:
-            st.info("Seçili sayfada performans kriterine uyan (1 olarak işaretlenmiş) kayıt bulunamadı.")
+            st.info("Bu sayfada performans işi olarak işaretlenmiş (değeri 1 olan) bir kayıt bulunamadı.")
             
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
