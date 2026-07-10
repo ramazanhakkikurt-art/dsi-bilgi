@@ -86,3 +86,22 @@ if os.path.exists(excel_yolu):
                 diger_satir = pd.DataFrame([{s_etiket: 'DİĞER KÜÇÜK SEKTÖRLER', 'Revize_Num': kucuk_sektorler['Revize_Num'].sum()}])
                 grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
             else:
+                grafik_data_final = ana_sektorler
+            
+            fig = px.pie(grafik_data_final, names=s_etiket, values='Revize_Num', hole=0.4)
+            fig.update_traces(textinfo='none', hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
+            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # --- AKILLI AÇILIR-KAPANIR SEKTÖR LİSTESİ ---
+        st.subheader("🗂️ Sektörler ve Alt İş Detayları")
+        st.info("Aşağıdaki ana başlıklara tıklayarak o sektöre ait alt işlerin listesini açabilirsiniz.")
+        
+        sektorler = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique()
+        
+        for  sektor in sektorler:
+            sektor_filtre = data[data[s_etiket] == sektor].copy()
+            s_revize_toplam =  sektor_filtre['Revize_Num'].sum()
+            s_harcama_toplam =  sektor_filtre['Harcama_Num'].sum()
+            
+            with st.expander(f"📁 {sektor
