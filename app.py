@@ -33,13 +33,13 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
+        # Excel'deki veri setini tamamen alıyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
-        # Başlık satırını güvenli bulma
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ|İŞİN ADI').any():
@@ -52,7 +52,7 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        s_etiket = columns[0]
+        s_etiket = columns[0] # B Sütunu (Ana İş Türleri)
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
@@ -86,34 +86,72 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- ETKİLEŞİMLİ PİVOT SEÇİM ALANI ---
-        st.subheader("🔍 Sektör ve Alt İş Kırılımı (Excel Pivot Mantığı)")
+        # --- ORİJİNAL PİVOT TABLO ALANI ---
+        st.subheader("📋 Yatırım ve Proje İzleme Tablosu")
+        st.write("👉 Alt detaylarını görmek istediğiniz ana iş kaleminin başındaki kutucuğu işaretleyin.")
         
-        # Sadece ana sektör başlıklarını ayıkla (içinde 'toplam' geçmeyen benzersiz satırlar)
-        sektor_listesi = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique().tolist()
+        # Sadece ana sektör başlıklarını (büyük harfli veya Excel'deki üst kırılımları) çekiyoruz
+        ham_isimler = data[s_etiket].fillna("").astype(str).tolist()
+        ana_isler = []
+        for isim in ham_isimler:
+            isim_temiz = isim.strip()
+            if isim_temiz and not any(t in isim_temiz for t in ["Toplam", "TOPLAM", "Genel"]):
+                # Kendini tekrar etmeyen ana başlıkları ayıklıyoruz
+                if isim_temiz.isupper() and isim_temiz not in ana_isler:
+                    ana_isler.append(isim_temiz)
         
-        # Temiz filtre listesi
-        secilen_sektor = st.selectbox("İncelemek istediğiniz Ana İş Kalemini (Sektörü) Seçin:", ["Tüm Listeyi Orijinal Haliyle Göster"] + sektor_listesi)
-        
-        # Gösterilecek veri tablosunu hazırla
-        display_data = pd.DataFrame()
-        display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
-        display_data[s_basi] = data['Basi_Num'].apply(tr_format)
-        display_data[s_revize] = data['Revize_Num'].apply(tr_format)
-        display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
-        display_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
-        
-        for col in columns:
-            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
-                display_data[col] = data[col].fillna("").astype(str)
-        
-        # Filtreleme Mantığı
-        if secilen_sektor != "Tüm Listeyi Orijinal Haliyle Göster":
-            # Seçilen sektörü ve hemen altındaki işleri süz
-            mask = display_data[s_etiket].str.contains(secilen_sektor, case=False, na=False)
-            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(display_data, use_container_width=True, hide_index=True)
+        # Her bir ana iş kalemi için Excel satır yapısını koruyarak dinamik alt tablolar oluşturma
+        for ana_is in ana_isler:
+            # Ana iş satırının verilerini çek
+            ana_satir = data[data[s_etiket].astype(str).str.strip() == ana_is]
+            if not ana_satir.empty:
+                # Toplam değerleri formatla
+                v_basi = tr_format(ana_satir['Basi_Num'].values[0])
+                v_revize = tr_format(ana_satir['Revize_Num'].values[0])
+                v_harcama = tr_format(ana_satir['Harcama_Num'].values[0])
+                v_kalan = tr_format(ana_satir['Kalan_Num'].values[0])
+                
+                # Sütun başlık hizasında şık bir genişletilebilir satır yapıyoruz
+                baslik_metni = f"📁 {ana_is}  |  Sene Başı: {v_basi} TL  |  Revize: {v_revize} TL  |  Harcama: {v_harcama} TL  |  Kalan: {v_kalan} TL"
+                
+                # İŞTE O TIKLAYINCA AÇILAN PİVOT MANTIĞI
+                with st.expander(baslik_metni, expanded=False):
+                    # Excel'de bu ana başlığın altında yer alan tüm alt işleri (C sütunu verilerini) süzüyoruz
+                    idx_list = data.index.tolist()
+                    start_idx = data[data[s_etiket].astype(str).str.strip() == ana_is].index[0]
+                    start_pos = idx_list.index(start_idx)
+                    
+                    sub_rows = []
+                    for p in idx_list[start_pos + 1:]:
+                        val = str(data.loc[p, s_etiket]).strip()
+                        # Yeni bir ana başlığa veya toplam satırına geldiyse alt iş bitmiştir, dur
+                        if val in ana_isler or "Toplam" in val or "TOPLAM" in val:
+                            break
+                        sub_rows.append(data.loc[p])
+                    
+                    if sub_rows:
+                        sub_df = pd.DataFrame(sub_rows)
+                        display_sub = pd.DataFrame()
+                        display_sub["İŞİN ADI / DETAYI"] = sub_df[s_etiket].astype(str)
+                        display_sub[s_basi] = sub_df['Basi_Num'].apply(tr_format)
+                        display_sub[s_revize] = sub_df['Revize_Num'].apply(tr_format)
+                        display_sub[s_harcama] = sub_df['Harcama_Num'].apply(tr_format)
+                        display_sub[s_kalan] = sub_df['Kalan_Num'].apply(tr_format)
+                        
+                        # Diğer ek sütunlar varsa ekle
+                        for col in columns:
+                            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                                display_sub[col] = sub_df[col].fillna("").astype(str)
+                                
+                        st.dataframe(display_sub, use_container_width=True, hide_index=True)
+                    else:
+                        st.caption("Bu iş kalemine ait alt detay bulunamadı.")
+                        
+        # Genel Toplam satırını en alta sabitle
+        if not toplam_satiri.empty:
+            st.markdown("---")
+            st.markdown(f"### 📊 GENEL TOPLAM")
+            st.markdown(f"**Sene Başı Ödeneği:** {tr_format(t_basi)} TL  |  **Revize Ödenek:** {tr_format(t_revize)} TL  |  **Yılı Harcaması:** {tr_format(t_harcama)} TL  |  **Kalan Ödenek:** {tr_format(t_kalan)} TL")
             
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
