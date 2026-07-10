@@ -54,12 +54,12 @@ if os.path.exists(excel_yolu):
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
         # Sayısal alanları temizle
-        data[s_basi] = data[s_basi].apply(temiz_sayi_yap)
-        data[s_revize] = data[s_revize].apply(temiz_sayi_yap)
-        data[s_harcama] = data[s_harcama].apply(temiz_sayi_yap)
-        data[s_kalan] = data[s_revize] - data[s_harcama]
+        data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
+        data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
+        data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
+        data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # Excel'deki toplam ve alt satır karmaşasını temizle, saf veriyi çek
+        # Excel'deki toplam satırlarını temizle
         saf_veri = data[
             (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
             (data[s_tur].fillna("").astype(str).str.strip() != "")
@@ -68,38 +68,41 @@ if os.path.exists(excel_yolu):
         # --- ÜST ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{saf_veri[s_basi].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{saf_veri[s_revize].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{saf_veri[s_harcama].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{saf_veri[s_kalan].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{saf_veri['Basi_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{saf_veri['Revize_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>YILI HARCAMASI</h4><h3 style='color:#34d399; font-size:20px;'>{saf_veri['Harcama_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{saf_veri['Kalan_Num'].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- TAM İSTEDİĞİN EXCEL GRUPLANDIRMA YAPISI ---
+        # --- EXCEL HİYERARŞİ YAPISI ---
         st.subheader("🔍 Hiyerarşik İş ve Proje Grubu Tablosu")
-        st.info("Sol taraftaki hiyerarşik grup yapısı sayesinde verileri doğrudan Excel düzeninde inceleyebilirsiniz.")
         
-        # Pandas Pivot kullanarak B ve C sütununu tam senin ekran görüntündeki gibi iç içe bağlıyoruz
+        # Mükerrer sütun hatasını engellemek için pivotu doğrudan sayısal sütunlar üzerinden yapıyoruz
         pivot_df = pd.pivot_table(
             saf_veri,
-            index=[s_tur, s_adi], # Önce İşin Türü, altında İşin Adı sıralanır
-            values=[s_basi, s_revize, s_harcama, s_kalan],
+            index=[s_tur, s_adi],
+            values=['Basi_Num', 'Revize_Num', 'Harcama_Num', 'Kalan_Num'],
             aggfunc='sum'
         ).reset_index()
         
-        # Sütunları müdürün alışık olduğu orijinal sıraya diziyoruz
-        pivot_df = pivot_df[[s_tur, s_adi, s_basi, s_revize, s_harcama, s_kalan]]
+        # Görüntülenecek dataframe'i oluştur ve sütun isimlerini temizle
+        final_df = pd.DataFrame()
+        final_df["İŞİN TÜRÜ (ANA GRUP)"] = pivot_df[s_tur].astype(str)
+        final_df["İŞİN ADI / ALT PROJE"] = pivot_df[s_adi].astype(str)
+        final_df["SENE BAŞI ÖDENEĞİ"] = pivot_df['Basi_Num']
+        final_df["REVİZE ÖDENEK"] = pivot_df['Revize_Num']
+        final_df["YILI HARCAMASI"] = pivot_df['Harcama_Num']
+        final_df["YILI ÖDENEĞİ KALAN"] = pivot_df['Kalan_Num']
         
-        # Streamlit'in akıllı veri tablosu yapılandırması (Sayıları doğrudan para birimi yapar)
+        # Tabloyu jilet gibi ekrana bas
         st.dataframe(
-            pivot_df,
+            final_df,
             use_container_width=True,
             hide_index=True,
             column_config={
-                s_tur: st.column_config.TextColumn("İŞİN TÜRÜ (ANA GRUP)"),
-                s_adi: st.column_config.TextColumn("İŞİN ADI / ALT PROJE"),
-                s_basi: st.column_config.NumberColumn("SENE BAŞI ÖDENEĞİ", format="%.2f TL"),
-                s_revize: st.column_config.NumberColumn("REVİZE ÖDENEK", format="%.2f TL"),
-                s_harcama: st.column_config.NumberColumn("YILI HARCAMASI", format="%.2f TL"),
-                s_kalan: st.column_config.NumberColumn("YILI ÖDENEĞİ KALAN", format="%.2f TL")
+                "SENE BAŞI ÖDENEĞİ": st.column_config.NumberColumn(format="%.2f TL"),
+                "REVİZE ÖDENEK": st.column_config.NumberColumn(format="%.2f TL"),
+                "YILI HARCAMASI": st.column_config.NumberColumn(format="%.2f TL"),
+                "YILI ÖDENEĞİ KALAN": st.column_config.NumberColumn(format="%.2f TL")
             }
         )
         
