@@ -33,14 +33,12 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
-        # Excel'deki tüm hiyerarşiyi ham haliyle düz tablo olarak alıyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
-        # Başlık satırını yakala
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ').any():
@@ -59,12 +57,6 @@ if os.path.exists(excel_yolu):
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
-        # Sayısal dönüşümler (Sadece üst metriklerin doğru toplanması için)
-        # Toplam satırlarını çift saymamak için filtreleyerek metrikleri hesaplıyoruz
-        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
-        
-        # Eğer Excel hem ana işi hem alt işi alt alta barındırıyorsa, mükerrer toplamı engellemek için kontrol
-        # Bu kod ham tablonun yapısını bozmadan metrikleri güvenli hesaplar
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
@@ -74,8 +66,9 @@ if os.path.exists(excel_yolu):
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
         
-        # Sadece ana toplam satırı varsa onu al, yoksa altların toplamını al
+        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
+        
         if not toplam_satiri.empty:
             t_basi = temiz_sayi_yap(toplam_satiri[s_basi].values[0])
             t_revize = temiz_sayi_yap(toplam_satiri[s_revize].values[0])
@@ -92,12 +85,17 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- TEK PARÇA BÜYÜK GÖRSEL TABLO ---
-        st.subheader("🔍 Akıllı İş/Proje Sorgulama")
+        # --- DİNAMİK ANA İŞ KALEMİ FİLTRESİ ---
+        st.subheader("🔍 Yatırım ve Proje Filtreleme")
         
+        # Sektör listesini çek (Toplamları hariç tut)
+        temiz_sektorler = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique().tolist()
+        filtre_secenekleri = ["Tüm İş Kalemleri (Hepsini Göster)"] + temiz_sektorler
+        
+        secilen_is = st.selectbox("İncelemek istediğiniz ana iş kalemini seçin:", filtre_secenekleri)
+        
+        # --- TABLO HAZIRLAMA ---
         display_data = pd.DataFrame()
-        
-        # Excel'deki metin yapısını (boşlukları ve alt işleri) aynen koruyarak aktar formatla
         display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
         display_data[s_revize] = data['Revize_Num'].apply(tr_format)
@@ -107,13 +105,20 @@ if os.path.exists(excel_yolu):
         for col in columns:
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
-                
-        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
-        if arama:
-            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
-            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+        
+        # Seçilen filtreye göre tabloyu daralt veya geniş tut
+        if secilen_is != "Tüm İş Kalemleri (Hepsini Göster)":
+            # Seçilen iş kalemi veya onun alt projelerini içeren satırları filtrele
+            filtreli_df = display_data[display_data[s_etiket].str.contains(secilen_is, case=False, na=False)]
+            st.dataframe(filtreli_df, use_container_width=True, hide_index=True)
         else:
-            st.dataframe(display_data, use_container_width=True, hide_index=True)
+            # Filtre yoksa ya da arama çubuğu kullanılıyorsa
+            arama = st.text_input("Veya aramak istediğiniz spesifik bir proje adını buraya yazın:")
+            if arama:
+                mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+                st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+            else:
+                st.dataframe(display_data, use_container_width=True, hide_index=True)
             
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
