@@ -31,10 +31,6 @@ def tr_format(val):
     except:
         return "0,00"
 
-# Açık olan sektörleri hafızada tutuyoruz
-if 'acik_sektorler' not in st.session_state:
-    st.session_state.acik_sektorler = set()
-
 if os.path.exists(excel_yolu):
     try:
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
@@ -89,63 +85,46 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- BUTON KONTROLLÜ PİVOT ALANI ---
-        st.subheader("📋 Yatırım ve Proje İzleme Paneli")
-        
-        # Sektör başlıklarını çek
-        ana_isler = []
+        # --- TEMİZ SIDEBAR FİLTRESİ ---
+        # Sadece ana sektör başlıklarını (büyük harfli olanları) çekiyoruz
+        ana_sektorler = []
         for x in data[s_etiket].fillna("").astype(str):
             x_temiz = x.strip()
             if x_temiz.isupper() and not any(t in x_temiz for t in ["TOPLAM", "Toplam", "GENEL"]):
-                if x_temiz not in ana_isler:
-                    ana_isler.append(x_temiz)
+                if x_temiz not in ana_sektorler:
+                    ana_sektorler.append(x_temiz)
+                    
+        secilen_sektor = st.sidebar.selectbox("🔍 Sektör/İş Türü Filtresi", ["Tüm Yatırımları Listele"] + ana_sektorler)
         
-        # Tablonun üstüne kontrol butonlarını diziyoruz (Yan yana şık butonlar)
-        st.write("📂 **Sektör Detaylarını Aç / Kapat:**")
-        cols_buttons = st.columns(len(ana_isler))
-        
-        for idx, sektor in enumerate(ana_isler):
-            with cols_buttons[idx]:
-                # Sektörün durumuna göre buton ismi belirle
-                durum = "🔴 Kapat" if sektor in st.session_state.acik_sektorler else "🟢 Aç"
-                if st.button(f"{sektor}\n({durum})", key=f"btn_{idx}"):
-                    if sektor in st.session_state.acik_sektorler:
-                        st.session_state.acik_sektorler.remove(sektor)
-                    else:
-                        st.session_state.acik_sektorler.add(sektor)
-                    st.rerun()
-        
-        # Dinamik satırları oluşturma
+        # Tabloyu oluşturma
         final_rows = []
+        guncel_sektor = ""
+        
         for idx, row in data.iterrows():
             val = str(row[s_etiket]).strip()
             
-            if val in ana_isler:
-                durum_isareti = "▼" if val in st.session_state.acik_sektorler else "►"
-                yeni_satir = row.copy()
-                yeni_satir[s_etiket] = f"{durum_isareti} {val}"
-                final_rows.append(yeni_satir)
-                
-                # Eğer butonla açıldıysa alt projeleri ekle
-                if val in st.session_state.acik_sektorler:
-                    idx_list = data.index.tolist()
-                    start_pos = idx_list.index(idx)
-                    
-                    for p in idx_list[start_pos + 1:]:
-                        sub_val = str(data.loc[p, s_etiket]).strip()
-                        if sub_val in ana_isler or "Toplam" in sub_val or "TOPLAM" in sub_val:
-                            break
-                        
-                        sub_row = data.loc[p].copy()
-                        sub_row[s_etiket] = f"        └── {sub_val}"
-                        final_rows.append(sub_row)
-                        
+            if val in ana_sektorler:
+                guncel_sektor = val
+                row['Sektör_Grup'] = guncel_sektor
+                row[s_etiket] = f"📂 {val}"
+                final_rows.append(row)
             elif "Toplam" in val or "TOPLAM" in val:
+                row['Sektör_Grup'] = "TOPLAM"
+                final_rows.append(row)
+            else:
+                row['Sektör_Grup'] = guncel_sektor
+                row[s_etiket] = f"    └── {val}"
                 final_rows.append(row)
                 
-        # Tabloyu bas
         if final_rows:
             display_df = pd.DataFrame(final_rows)
+            
+            # Seçilen sektöre göre süzme
+            if secilen_sektor != "Tüm Yatırımları Listele":
+                # Seçilen sektörü ve onun alt işlerini göster, diğerlerini gizle
+                mask = (display_df['Sektör_Grup'] == secilen_sektor) | (display_df['Sektör_Grup'] == "TOPLAM")
+                display_df = display_df[mask]
+                
             final_display = pd.DataFrame()
             final_display["İŞİN ADI / SEKTÖRÜ"] = display_df[s_etiket]
             final_display[s_basi] = display_df['Basi_Num'].apply(tr_format)
@@ -154,7 +133,7 @@ if os.path.exists(excel_yolu):
             final_display[s_kalan] = display_df['Kalan_Num'].apply(tr_format)
             
             for col in columns:
-                if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan, 'Sektör_Grup']:
                     final_display[col] = display_df[col].fillna("").astype(str)
                     
             st.dataframe(final_display, use_container_width=True, hide_index=True)
