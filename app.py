@@ -43,35 +43,36 @@ if os.path.exists(excel_yolu):
                 header_row_idx = idx
                 break
                 
+        # Başlıkları al ve sağındaki solundaki tüm gizli boşlukları temizle (strip)
         columns = raw_data.loc[header_row_idx].astype(str).str.strip().tolist()
         data = raw_data.loc[header_row_idx + 1:].copy()
         data.columns = columns
         
+        # DataFrame'in kendi sütun indekslerindeki boşlukları da tamamen kazıyalım
+        data.columns = data.columns.str.strip()
+        
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        # Sütun tespiti ve sayısal dönüşümler
-        s_tur = columns[1] if 'TÜRÜ' in columns[1] or 'TURU' in columns[1] else [c for c in columns if 'TÜRÜ' in c or 'TURU' in c][0]
-        s_adi = [c for c in columns if 'ADI' in c or 'İŞ' in c or 'is_adi' in c][0]
-        s_basi = [c for c in columns if 'SENE' in c or 'BAŞI' in c or 'BASI' in c][0]
-        s_revize = [c for c in columns if 'REVİZE' in c or 'REVIZE' in c][0]
-        s_harcama = [c for c in columns if 'HARCAMA' in c or 'YILI' in c][0]
-        s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
-        
-        # Performans sütununu bul
-        s_perf = [c for c in columns if 'PERFORMANS' in c or 'PERF' in c][0]
+        # Temizlenmiş sütun isimleri üzerinden dinamik tespit
+        s_tur = [c for c in data.columns if 'TÜRÜ' in c or 'TURU' in c][0]
+        s_adi = [c for c in data.columns if 'ADI' in c or 'İŞ' in c or 'is_adi' in c][0]
+        s_basi = [c for c in data.columns if 'SENE' in c or 'BAŞI' in c or 'BASI' in c][0]
+        s_revize = [c for c in data.columns if 'REVİZE' in c or 'REVIZE' in c][0]
+        s_harcama = [c for c in data.columns if 'HARCAMA' in c or 'YILI' in c][0]
+        s_perf = [c for c in data.columns if 'PERFORMANS' in c or 'PERF' in c][0]
         
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
         data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # Toplam ve harici satırları temizle, saf veriyi al
+        # Toplam satırlarını temizle, saf kayıtları filtrele
         saf_veri = data[
             (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
             (data[s_tur].fillna("").astype(str).str.strip() != "")
         ].copy()
         
-        # --- ÖZET METRİKLER ---
+        # --- ÜST ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         t_basi = saf_veri['Basi_Num'].sum()
         t_revize = saf_veri['Revize_Num'].sum()
@@ -93,7 +94,7 @@ if os.path.exists(excel_yolu):
             fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig, use_container_width=True)
             
-        # Gösterim veri çerçevesini hazırla
+        # Gösterim veri tablosu şablonu
         display_df = pd.DataFrame()
         display_df["İŞİN TÜRÜ"] = saf_veri[s_tur].astype(str)
         display_df["İŞİN ADI"] = saf_veri[s_adi].astype(str)
@@ -101,7 +102,7 @@ if os.path.exists(excel_yolu):
         display_df["REVİZE ÖDENEK"] = saf_veri['Revize_Num']
         display_df["YILI HARCAMASI"] = saf_veri['Harcama_Num']
         display_df["YILI ÖDENEĞİ KALAN"] = saf_veri['Kalan_Num']
-        display_df["PERFORMANS"] = saf_veri[s_perf].fillna("0").astype(str).str.strip()
+        display_df["PERFORMANS_KONTROL"] = saf_veri[s_perf].fillna("0").astype(str).str.strip().str.replace(".0", "", regex=False)
         
         # --- TABLO 1: GENEL PROJE LİSTESİ ---
         st.subheader("📋 Genel İş ve Proje Listesi (Tümü)")
@@ -119,9 +120,9 @@ if os.path.exists(excel_yolu):
         
         # --- TABLO 2: SADECE PERFORMANS İŞLERİ ---
         st.subheader("🎯 Sadece Performans Takibindeki İşler")
-        # Performans kolonu 1 veya 1.0 olan satırları jilet gibi filtreliyoruz
-        perf_mask = display_df["PERFORMANS"].isin(["1", "1.0", 1, 1.0])
-        perf_df = display_df[perf_mask].copy()
+        
+        # Excel'deki 1, 1.0 veya string "1" durumlarını mutlak yakalamak için süzgeç
+        perf_df = display_df[display_df["PERFORMANS_KONTROL"] == "1"].copy()
         
         if not perf_df.empty:
             st.dataframe(
@@ -136,7 +137,7 @@ if os.path.exists(excel_yolu):
                 }
             )
         else:
-            st.warning("Bu sayfada performans işi olarak işaretlenmiş bir kayıt bulunamadı.")
+            st.info("Seçili sayfada performans kriterine uyan (1 olarak işaretlenmiş) kayıt bulunamadı.")
             
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
