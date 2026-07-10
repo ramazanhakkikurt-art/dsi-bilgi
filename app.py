@@ -25,12 +25,6 @@ def temiz_sayi_yap(val):
         except:
             return 0.0
 
-def tr_format(val):
-    try:
-        return f"{val:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except:
-        return "0,00"
-
 if os.path.exists(excel_yolu):
     try:
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
@@ -51,93 +45,64 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        s_etiket = columns[0]
+        # Sütunları netleştir
+        s_tur = columns[0]   # B Sütunu: İŞİN TÜRÜ
+        s_adi = columns[1]   # C Sütunu: İŞİN ADI
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
-        data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
-        data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
-        data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
-        data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
+        # Sayısal alanları temizle
+        data[s_basi] = data[s_basi].apply(temiz_sayi_yap)
+        data[s_revize] = data[s_revize].apply(temiz_sayi_yap)
+        data[s_harcama] = data[s_harcama].apply(temiz_sayi_yap)
+        data[s_kalan] = data[s_revize] - data[s_harcama]
         
-        # --- ÖZET METRİKLER ---
+        # Excel'deki toplam ve alt satır karmaşasını temizle, saf veriyi çek
+        saf_veri = data[
+            (~data[s_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
+            (data[s_tur].fillna("").astype(str).str.strip() != "")
+        ].copy()
+        
+        # --- ÜST ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
+        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{saf_veri[s_basi].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{saf_veri[s_revize].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{saf_veri[s_harcama].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
+        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{saf_veri[s_kalan].sum():,.2f} TL</h3></div>", unsafe_allow_html=True)
         
-        toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
-        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
+        # --- TAM İSTEDİĞİN EXCEL GRUPLANDIRMA YAPISI ---
+        st.subheader("🔍 Hiyerarşik İş ve Proje Grubu Tablosu")
+        st.info("Sol taraftaki hiyerarşik grup yapısı sayesinde verileri doğrudan Excel düzeninde inceleyebilirsiniz.")
         
-        if not toplam_satiri.empty:
-            t_basi = temiz_sayi_yap(toplam_satiri[s_basi].values[0])
-            t_revize = temiz_sayi_yap(toplam_satiri[s_revize].values[0])
-            t_harcama = temiz_sayi_yap(toplam_satiri[s_harcama].values[0])
-            t_kalan = t_revize - t_harcama
-        else:
-            t_basi = metrik_data['Basi_Num'].sum()
-            t_revize = metrik_data['Revize_Num'].sum()
-            t_harcama = metrik_data['Harcama_Num'].sum()
-            t_kalan = t_revize - t_harcama
-
-        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(t_basi)} TL</h3></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{tr_format(t_revize)} TL</h3></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
+        # Pandas Pivot kullanarak B ve C sütununu tam senin ekran görüntündeki gibi iç içe bağlıyoruz
+        pivot_df = pd.pivot_table(
+            saf_veri,
+            index=[s_tur, s_adi], # Önce İşin Türü, altında İşin Adı sıralanır
+            values=[s_basi, s_revize, s_harcama, s_kalan],
+            aggfunc='sum'
+        ).reset_index()
         
-        # --- TEMİZ SIDEBAR FİLTRESİ ---
-        # Sadece ana sektör başlıklarını (büyük harfli olanları) çekiyoruz
-        ana_sektorler = []
-        for x in data[s_etiket].fillna("").astype(str):
-            x_temiz = x.strip()
-            if x_temiz.isupper() and not any(t in x_temiz for t in ["TOPLAM", "Toplam", "GENEL"]):
-                if x_temiz not in ana_sektorler:
-                    ana_sektorler.append(x_temiz)
-                    
-        secilen_sektor = st.sidebar.selectbox("🔍 Sektör/İş Türü Filtresi", ["Tüm Yatırımları Listele"] + ana_sektorler)
+        # Sütunları müdürün alışık olduğu orijinal sıraya diziyoruz
+        pivot_df = pivot_df[[s_tur, s_adi, s_basi, s_revize, s_harcama, s_kalan]]
         
-        # Tabloyu oluşturma
-        final_rows = []
-        guncel_sektor = ""
+        # Streamlit'in akıllı veri tablosu yapılandırması (Sayıları doğrudan para birimi yapar)
+        st.dataframe(
+            pivot_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                s_tur: st.column_config.TextColumn("İŞİN TÜRÜ (ANA GRUP)"),
+                s_adi: st.column_config.TextColumn("İŞİN ADI / ALT PROJE"),
+                s_basi: st.column_config.NumberColumn("SENE BAŞI ÖDENEĞİ", format="%.2f TL"),
+                s_revize: st.column_config.NumberColumn("REVİZE ÖDENEK", format="%.2f TL"),
+                s_harcama: st.column_config.NumberColumn("YILI HARCAMASI", format="%.2f TL"),
+                s_kalan: st.column_config.NumberColumn("YILI ÖDENEĞİ KALAN", format="%.2f TL")
+            }
+        )
         
-        for idx, row in data.iterrows():
-            val = str(row[s_etiket]).strip()
-            
-            if val in ana_sektorler:
-                guncel_sektor = val
-                row['Sektör_Grup'] = guncel_sektor
-                row[s_etiket] = f"📂 {val}"
-                final_rows.append(row)
-            elif "Toplam" in val or "TOPLAM" in val:
-                row['Sektör_Grup'] = "TOPLAM"
-                final_rows.append(row)
-            else:
-                row['Sektör_Grup'] = guncel_sektor
-                row[s_etiket] = f"    └── {val}"
-                final_rows.append(row)
-                
-        if final_rows:
-            display_df = pd.DataFrame(final_rows)
-            
-            # Seçilen sektöre göre süzme
-            if secilen_sektor != "Tüm Yatırımları Listele":
-                # Seçilen sektörü ve onun alt işlerini göster, diğerlerini gizle
-                mask = (display_df['Sektör_Grup'] == secilen_sektor) | (display_df['Sektör_Grup'] == "TOPLAM")
-                display_df = display_df[mask]
-                
-            final_display = pd.DataFrame()
-            final_display["İŞİN ADI / SEKTÖRÜ"] = display_df[s_etiket]
-            final_display[s_basi] = display_df['Basi_Num'].apply(tr_format)
-            final_display[s_revize] = display_df['Revize_Num'].apply(tr_format)
-            final_display[s_harcama] = display_df['Harcama_Num'].apply(tr_format)
-            final_display[s_kalan] = display_df['Kalan_Num'].apply(tr_format)
-            
-            for col in columns:
-                if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan, 'Sektör_Grup']:
-                    final_display[col] = display_df[col].fillna("").astype(str)
-                    
-            st.dataframe(final_display, use_container_width=True, hide_index=True)
-            
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
 else:
