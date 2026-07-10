@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import os
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
@@ -71,54 +70,4 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(data['Harcama_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(data['Kalan_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- PASTA GRAFİĞİ ---
-        st.subheader("🍕 Sektörlere Göre Bütçe Dağılımı")
-        grafik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
-        
-        if not grafik_data.empty:
-            toplam_revize = grafik_data['Revize_Num'].sum()
-            grafik_data['Yuzde'] = (grafik_data['Revize_Num'] / toplam_revize) * 100
-            
-            ana_sektorler = grafik_data[grafik_data['Yuzde'] >= 2.0].copy()
-            kucuk_sektorler = grafik_data[grafik_data['Yuzde'] < 2.0]
-            
-            if not kucuk_sektorler.empty:
-                diger_satir = pd.DataFrame([{s_etiket: 'DİĞER KÜÇÜK SEKTÖRLER', 'Revize_Num': kucuk_sektorler['Revize_Num'].sum()}])
-                grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
-            else:
-                grafik_data_final = ana_sektorler
-            
-            fig = px.pie(grafik_data_final, names=s_etiket, values='Revize_Num', hole=0.4)
-            fig.update_traces(textinfo='none', hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
-            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # --- AKILLI AÇILIR-KAPANIR SEKTÖR LİSTESİ ---
-        st.subheader("🗂️ Sektörler ve Alt İş Detayları")
-        st.info("Aşağıdaki ana başlıklara tıklayarak o sektöre ait alt işlerin listesini açabilirsiniz.")
-        
-        sektorler = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique()
-        
-        for sektor in sektorler:
-            sektor_filtre = data[data[s_etiket] == sektor].copy()
-            s_revize_toplam = sektor_filtre['Revize_Num'].sum()
-            s_harcama_toplam = sektor_filtre['Harcama_Num'].sum()
-            
-            with st.expander(f"📁 {sektor} — (Revize: {tr_format(s_revize_toplam)} TL / Harcama: {tr_format(s_harcama_toplam)} TL)"):
-                alt_tablo = pd.DataFrame()
-                alt_tablo[s_etiket] = sektor_filtre[s_etiket].astype(str)
-                alt_tablo[s_basi] =  sektor_filtre['Basi_Num'].apply(tr_format)
-                alt_tablo[s_revize] = sektor_filtre['Revize_Num'].apply(tr_format)
-                alt_tablo[s_harcama] = sektor_filtre['Harcama_Num'].apply(tr_format)
-                alt_tablo[s_kalan] = sektor_filtre['Kalan_Num'].apply(tr_format)
-                
-                for col in columns:
-                    if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
-                        alt_tablo[col] = sektor_filtre[col].fillna("").astype(str)
-                        
-                st.dataframe(alt_tablo, use_container_width=True, hide_index=True)
-                
-    except Exception as e:
-        st.error(f"Veri işlenirken bir hata oluştu: {e}")
-else:
-    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
+        # --- İLK BEĞENDİĞİN B
