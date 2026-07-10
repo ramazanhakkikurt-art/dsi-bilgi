@@ -51,7 +51,7 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        s_etiket = columns[0] # B Sütunu (İşin Türü / Satır Etiketleri)
+        s_etiket = columns[0]
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
@@ -85,16 +85,9 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- SIRALI BÜYÜK TABLO ALANI ---
+        # --- DOĞAL HİYERARŞİK TABLO ALANI ---
         st.subheader("🔍 Akıllı İş/Proje Sorgulama")
         
-        # B ve C sütununa göre veriyi sıralı hale getiriyoruz (Hatalı eşleşmeyi önler)
-        # Eğer tabloda 'İŞİN ADI' veya 3. bir anahtar sütun varsa ona göre sıralar
-        if len(columns) > 1:
-            data = data.sort_values(by=[s_etiket, columns[1]], ascending=[True, True])
-        else:
-            data = data.sort_values(by=[s_etiket], ascending=True)
-            
         display_data = pd.DataFrame()
         display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
@@ -102,4 +95,18 @@ if os.path.exists(excel_yolu):
         display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
         display_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
         
-        for col
+        for col in columns:
+            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                display_data[col] = data[col].fillna("").astype(str)
+                
+        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
+        if arama:
+            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Veri işlenirken bir hata oluştu: {e}")
+else:
+    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
