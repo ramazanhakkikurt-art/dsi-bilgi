@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import os
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
@@ -28,7 +29,6 @@ def tr_format(val):
     except:
         return "0,00"
 
-# Hangi ana iş türlerinin (sektörlerin) açık olduğunu hafızada tutmak için session_state
 if 'acik_turler' not in st.session_state:
     st.session_state.acik_turler = set()
 
@@ -40,7 +40,6 @@ if os.path.exists(excel_yolu):
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
-        # Dinamik başlık satırı bulma
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ|İŞİN ADI|PROJE NO').any():
@@ -56,26 +55,28 @@ if os.path.exists(excel_yolu):
         # --- VERİ SEKLESİ İÇİN ÖZEL PIVOT VE GRUPLAMA MANTIĞI ---
         if secilen_sayfa.lower() == "veri" or "veri" in secilen_sayfa.lower():
             
-            # Sütun isimlerini tespit et
             col_tur = [c for c in columns if 'TÜRÜ' in c or 'TURU' in c][0]
             col_adi = [c for c in columns if 'ADI' in c or 'is_adi' in c or 'İŞ' in c][1] if len([c for c in columns if 'ADI' in c]) > 1 else [c for c in columns if 'ADI' in c or 'İŞ' in c][0]
             col_basi = [c for c in columns if 'SENE' in c or 'BAŞI' in c or 'BASI' in c][0]
             col_revize = [c for c in columns if 'REVİZE' in c or 'REVIZE' in c][0]
             col_harcama = [c for c in columns if 'HARCAMA' in c or 'YILI' in c][0]
             
-            # Sayısal dönüşümler
             data['Basi_Num'] = data[col_basi].apply(temiz_sayi_yap)
             data['Revize_Num'] = data[col_revize].apply(temiz_sayi_yap)
             data['Harcama_Num'] = data[col_harcama].apply(temiz_sayi_yap)
             data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
             
-            # Toplamları hesapla (Metrikler için)
-            t_basi = data['Basi_Num'].sum()
-            t_revize = data['Revize_Num'].sum()
-            t_harcama = data['Harcama_Num'].sum()
+            saf_veri = data[
+                (~data[col_tur].astype(str).str.contains('Toplam|TOPLAM|Genel', case=False, na=False)) & 
+                (data[col_tur].fillna("").astype(str).str.strip() != "")
+            ].copy()
+            
+            t_basi = saf_veri['Basi_Num'].sum()
+            t_revize = saf_veri['Revize_Num'].sum()
+            t_harcama = saf_veri['Harcama_Num'].sum()
             t_kalan = t_revize - t_harcama
             
-            # --- METRİKLER ---
+            # --- 1. GERİ GELEN ÖZET METRİKLER (HTML KUTULU) ---
             st.subheader("💰 Genel Ödenek ve Harcama Özeti")
             m1, m2, m3, m4 = st.columns(4)
             m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(t_basi)} TL</h3></div>", unsafe_allow_html=True)
@@ -83,39 +84,51 @@ if os.path.exists(excel_yolu):
             m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
             m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
             
-            # --- TAM İSTEDİĞİN TABLO İÇİ GRUPLAMA ALANI ---
-            st.subheader("📋 Orijinal Hiyerarşik Yatırım Tablosu")
+            # --- 2. GERİ GELEN PASTA GRAFİĞİ (HOVER DETAYLI) ---
+            st.subheader("🍕 Sektörlere Göre Bütçe Dağılımı")
+            grafik_ozet = saf_veri.groupby(col_tur)['Revize_Num'].sum().reset_index()
             
-            # Benzersiz iş türlerini (Sektörleri) al
-            is_turleri = data[col_tur].dropna().unique().tolist()
+            if not grafik_ozet.empty:
+                toplam_g_revize = grafik_ozet['Revize_Num'].sum()
+                grafik_ozet['Yuzde'] = (grafik_ozet['Revize_Num'] / toplam_g_revize) * 100
+                
+                ana_sektorler = grafik_ozet[grafik_ozet['Yuzde'] >= 2.0].copy()
+                kucuk_sektorler = grafik_ozet[grafik_ozet['Yuzde'] < 2.0]
+                
+                if not kucuk_sektorler.empty:
+                    diger_satir = pd.DataFrame([{col_tur: 'DİĞER KÜÇÜK SEKTÖRLER', 'Revize_Num': kucuk_sektorler['Revize_Num'].sum()}])
+                    grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
+                else:
+                    grafik_data_final = ana_sektorler
+                
+                fig = px.pie(grafik_data_final, names=col_tur, values='Revize_Num', hole=0.4)
+                fig.update_traces(textinfo='none', hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>")
+                fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+                st.plotly_chart(fig, use_container_width=True)
             
-            # Tabloyu basmak için satır satır hiyerarşik liste oluşturuyoruz
+            # --- 3. HİYERARŞİK ANA TABLO ---
+            st.subheader("🔍 Hiyerarşik İş ve Proje Grubu Tablosu")
+            
+            is_turleri = saf_veri[col_tur].dropna().unique().tolist()
             final_rows = []
             
             for tur in is_turleri:
-                tur_filtre = data[data[col_tur] == tur]
-                
-                # Sektörün toplam bütçelerini hesapla
+                tur_filtre = saf_veri[saf_veri[col_tur] == tur]
                 s_basi = tur_filtre['Basi_Num'].sum()
                 s_revize = tur_filtre['Revize_Num'].sum()
                 s_harcama = tur_filtre['Harcama_Num'].sum()
                 s_kalan = s_revize - s_harcama
                 
-                # Açık/Kapalı durum işareti
                 durum_isareti = "▼" if tur in st.session_state.acik_turler else "►"
                 
-                # Ana Sektör Satırı
                 final_rows.append({
                     "İŞİN ADI / GRUBU": f"{durum_isareti} {tur}",
                     "SENE BAŞI ÖDENEĞİ": tr_format(s_basi),
                     "REVİZE ÖDENEK": tr_format(s_revize),
                     "YILI HARCAMASI": tr_format(s_harcama),
-                    "YILI ÖDENEĞİ KALAN": tr_format(s_kalan),
-                    "is_ana_baslik": True,
-                    "orj_tur_adi": tur
+                    "YILI ÖDENEĞİ KALAN": tr_format(s_kalan)
                 })
                 
-                # Eğer müdür bu sektörü açtıysa, altındaki işleri altına listele
                 if tur in st.session_state.acik_turler:
                     for _, sub_row in tur_filtre.iterrows():
                         final_rows.append({
@@ -123,28 +136,21 @@ if os.path.exists(excel_yolu):
                             "SENE BAŞI ÖDENEĞİ": tr_format(sub_row['Basi_Num']),
                             "REVİZE ÖDENEK": tr_format(sub_row['Revize_Num']),
                             "YILI HARCAMASI": tr_format(sub_row['Harcama_Num']),
-                            "YILI ÖDENEĞİ KALAN": tr_format(sub_row['Kalan_Num']),
-                            "is_ana_baslik": False,
-                            "orj_tur_adi": tur
+                            "YILI ÖDENEĞİ KALAN": tr_format(sub_row['Kalan_Num'])
                         })
             
-            # Genel Toplam Satırını Ekle
             final_rows.append({
                 "İŞİN ADI / GRUBU": "📊 GENEL TOPLAM",
                 "SENE BAŞI ÖDENEĞİ": tr_format(t_basi),
                 "REVİZE ÖDENEK": tr_format(t_revize),
                 "YILI HARCAMASI": tr_format(t_harcama),
-                "YILI ÖDENEĞİ KALAN": tr_format(t_kalan),
-                "is_ana_baslik": False,
-                "orj_tur_adi": "TOTAL"
+                "YILI ÖDENEĞİ KALAN": tr_format(t_kalan)
             })
             
             table_df = pd.DataFrame(final_rows)
             
-            # --- DOĞRUDAN TABLODAN SEÇİLEN SATIRA GÖRE AÇMA MANTIĞI ---
-            # Müdür ana tablodaki satıra tıklayarak altını açıp kapatabilir
             secilen_index = st.selectbox(
-                "Detayını açmak veya kapatmak istediğiniz Ana İş Grubunu seçin:",
+                "Alt işlerini listelemek (açmak/kapatmak) istediğiniz Ana İş Grubunu seçin:",
                 options=["Seçim Yapın..."] + is_turleri
             )
             
@@ -155,15 +161,14 @@ if os.path.exists(excel_yolu):
                     st.session_state.acik_turler.add(secilen_index)
                 st.rerun()
             
-            # Tabloyu ekrana düz kurumsal yapıda basıyoruz
             st.dataframe(
                 table_df[["İŞİN ADI / GRUBU", "SENE BAŞI ÖDENEĞİ", "REVİZE ÖDENEK", "YILI HARCAMASI", "YILI ÖDENEĞİ KALAN"]],
                 use_container_width=True,
                 hide_index=True
             )
             
-        # Diğer düz sekmeler seçilirse bozmadan eski stabil haliyle göster
         else:
+            # Diğer sekmeler için varsayılan stabil tablo görüntüsü
             s_etiket = columns[0]
             s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
             s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
