@@ -39,6 +39,7 @@ if os.path.exists(excel_yolu):
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
+        # Başlık satırını güvenli bulma
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ|İŞİN ADI').any():
@@ -85,9 +86,16 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- DOĞAL HİYERARŞİK TABLO ALANI ---
-        st.subheader("🔍 Akıllı İş/Proje Sorgulama")
+        # --- ETKİLEŞİMLİ PİVOT SEÇİM ALANI ---
+        st.subheader("🔍 Sektör ve Alt İş Kırılımı (Excel Pivot Mantığı)")
         
+        # Sadece ana sektör başlıklarını ayıkla (içinde 'toplam' geçmeyen benzersiz satırlar)
+        sektor_listesi = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique().tolist()
+        
+        # Temiz filtre listesi
+        secilen_sektor = st.selectbox("İncelemek istediğiniz Ana İş Kalemini (Sektörü) Seçin:", ["Tüm Listeyi Orijinal Haliyle Göster"] + sektor_listesi)
+        
+        # Gösterilecek veri tablosunu hazırla
         display_data = pd.DataFrame()
         display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
@@ -98,10 +106,11 @@ if os.path.exists(excel_yolu):
         for col in columns:
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
-                
-        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
-        if arama:
-            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+        
+        # Filtreleme Mantığı
+        if secilen_sektor != "Tüm Listeyi Orijinal Haliyle Göster":
+            # Seçilen sektörü ve hemen altındaki işleri süz
+            mask = display_data[s_etiket].str.contains(secilen_sektor, case=False, na=False)
             st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
         else:
             st.dataframe(display_data, use_container_width=True, hide_index=True)
