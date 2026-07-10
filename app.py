@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import os
+from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
 
@@ -33,7 +34,7 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
-        # Excel'deki veri setini tamamen alıyoruz
+        # Excel'i okuyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
@@ -52,7 +53,7 @@ if os.path.exists(excel_yolu):
         
         st.success(f"📌 '{secilen_sayfa}' Verileri Canlı Olarak Gösteriliyor.")
         
-        s_etiket = columns[0] # B Sütunu (Ana İş Türleri)
+        s_etiket = columns[0] # B Sütunu (İşin Türü / Sektör)
         s_basi = [c for c in columns if 'SENE BASI' in c or 'SENE BAŞI' in c][0]
         s_revize = [c for c in columns if 'REVIZE' in c or 'REVİZE' in c][0]
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
@@ -86,73 +87,63 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- ORİJİNAL PİVOT TABLO ALANI ---
-        st.subheader("📋 Yatırım ve Proje İzleme Tablosu")
-        st.write("👉 Alt detaylarını görmek istediğiniz ana iş kaleminin başındaki kutucuğu işaretleyin.")
+        # --- GERÇEK EXCEL PİVOT TABLO ALANI ---
+        st.subheader("🔍 Orijinal Pivot ve Alt İş Takip Tablosu")
         
-        # Sadece ana sektör başlıklarını (büyük harfli veya Excel'deki üst kırılımları) çekiyoruz
-        ham_isimler = data[s_etiket].fillna("").astype(str).tolist()
+        # Ag-Grid için veri setini hazırlıyoruz
+        # Ana başlıkları (Sektörleri) belirlemek için bir mantık kuruyoruz
         ana_isler = []
-        for isim in ham_isimler:
-            isim_temiz = isim.strip()
-            if isim_temiz and not any(t in isim_temiz for t in ["Toplam", "TOPLAM", "Genel"]):
-                # Kendini tekrar etmeyen ana başlıkları ayıklıyoruz
-                if isim_temiz.isupper() and isim_temiz not in ana_isler:
-                    ana_isler.append(isim_temiz)
+        for x in data[s_etiket].fillna("").astype(str):
+            x_temiz = x.strip()
+            if x_temiz.isupper() and not any(t in x_temiz for t in ["TOPLAM", "Toplam", "GENEL"]):
+                if x_temiz not in ana_isler:
+                    ana_isler.append(x_temiz)
         
-        # Her bir ana iş kalemi için Excel satır yapısını koruyarak dinamik alt tablolar oluşturma
-        for ana_is in ana_isler:
-            # Ana iş satırının verilerini çek
-            ana_satir = data[data[s_etiket].astype(str).str.strip() == ana_is]
-            if not ana_satir.empty:
-                # Toplam değerleri formatla
-                v_basi = tr_format(ana_satir['Basi_Num'].values[0])
-                v_revize = tr_format(ana_satir['Revize_Num'].values[0])
-                v_harcama = tr_format(ana_satir['Harcama_Num'].values[0])
-                v_kalan = tr_format(ana_satir['Kalan_Num'].values[0])
-                
-                # Sütun başlık hizasında şık bir genişletilebilir satır yapıyoruz
-                baslik_metni = f"📁 {ana_is}  |  Sene Başı: {v_basi} TL  |  Revize: {v_revize} TL  |  Harcama: {v_harcama} TL  |  Kalan: {v_kalan} TL"
-                
-                # İŞTE O TIKLAYINCA AÇILAN PİVOT MANTIĞI
-                with st.expander(baslik_metni, expanded=False):
-                    # Excel'de bu ana başlığın altında yer alan tüm alt işleri (C sütunu verilerini) süzüyoruz
-                    idx_list = data.index.tolist()
-                    start_idx = data[data[s_etiket].astype(str).str.strip() == ana_is].index[0]
-                    start_pos = idx_list.index(start_idx)
-                    
-                    sub_rows = []
-                    for p in idx_list[start_pos + 1:]:
-                        val = str(data.loc[p, s_etiket]).strip()
-                        # Yeni bir ana başlığa veya toplam satırına geldiyse alt iş bitmiştir, dur
-                        if val in ana_isler or "Toplam" in val or "TOPLAM" in val:
-                            break
-                        sub_rows.append(data.loc[p])
-                    
-                    if sub_rows:
-                        sub_df = pd.DataFrame(sub_rows)
-                        display_sub = pd.DataFrame()
-                        display_sub["İŞİN ADI / DETAYI"] = sub_df[s_etiket].astype(str)
-                        display_sub[s_basi] = sub_df['Basi_Num'].apply(tr_format)
-                        display_sub[s_revize] = sub_df['Revize_Num'].apply(tr_format)
-                        display_sub[s_harcama] = sub_df['Harcama_Num'].apply(tr_format)
-                        display_sub[s_kalan] = sub_df['Kalan_Num'].apply(tr_format)
-                        
-                        # Diğer ek sütunlar varsa ekle
-                        for col in columns:
-                            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
-                                display_sub[col] = sub_df[col].fillna("").astype(str)
-                                
-                        st.dataframe(display_sub, use_container_width=True, hide_index=True)
-                    else:
-                        st.caption("Bu iş kalemine ait alt detay bulunamadı.")
-                        
-        # Genel Toplam satırını en alta sabitle
-        if not toplam_satiri.empty:
-            st.markdown("---")
-            st.markdown(f"### 📊 GENEL TOPLAM")
-            st.markdown(f"**Sene Başı Ödeneği:** {tr_format(t_basi)} TL  |  **Revize Ödenek:** {tr_format(t_revize)} TL  |  **Yılı Harcaması:** {tr_format(t_harcama)} TL  |  **Kalan Ödenek:** {tr_format(t_kalan)} TL")
+        # Tabloya ait satırların hangi ana başlığa ait olduğunu eşleştiriyoruz (Hiyerarşi Grubu)
+        grup_kolon = []
+        guncel_grup = "DİĞER"
+        
+        for val in data[s_etiket].fillna("").astype(str):
+            val_temiz = val.strip()
+            if val_temiz in ana_isler:
+                guncel_grup = val_temiz
+            grup_kolon.append(guncel_grup)
             
+        grid_data = pd.DataFrame()
+        grid_data['Ana İş Kalemi (Sektör)'] = grup_kolon
+        grid_data['İŞİN ADI / DETAYI'] = data[s_etiket].fillna("").astype(str)
+        grid_data[s_basi] = data['Basi_Num'].apply(tr_format)
+        grid_data[s_revize] = data['Revize_Num'].apply(tr_format)
+        grid_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
+        grid_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
+        
+        # Diğer ek sütunları ekle
+        for col in columns:
+            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                grid_data[col] = data[col].fillna("").astype(str)
+                
+        # Toplam satırlarını grid içinden gizle (Karmaşayı önlemek için)
+        grid_data = grid_data[~grid_data['İŞİN ADI / DETAYI'].str.contains('Toplam|TOPLAM', case=False)]
+        
+        # AG-GRID YAPILANDIRMASI (Excel Ağaç Görünümü Aktif Ediliyor)
+        gb = GridOptionsBuilder.from_dataframe(grid_data)
+        gb.configure_column('Ana İş Kalemi (Sektör)', rowGroup=True, hide=True) # Sektöre göre grupla ve o sütunu gizle
+        gb.configure_column('İŞİN ADI / DETAYI', width=300)
+        gb.configure_grid_options(animateRows=True, groupDisplayType='groupRows') # Satır içi açılır kapanır pivot yapısı
+        
+        gridOptions = gb.build()
+        
+        # Tabloyu Ekrana Basıyoruz
+        AgGrid(
+            grid_data,
+            gridOptions=gridOptions,
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            update_mode=GridUpdateMode.MODEL_CHANGED,
+            fit_columns_on_grid_load=True,
+            theme='balham', # Kurumsal, temiz ve düz tablo teması
+            enable_enterprise_modules=True
+        )
+        
     except Exception as e:
         st.error(f"Veri işlenirken bir hata oluştu: {e}")
 else:
