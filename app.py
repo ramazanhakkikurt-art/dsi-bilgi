@@ -31,7 +31,7 @@ def tr_format(val):
     except:
         return "0,00"
 
-# Hangi ana başlıkların açık olduğunu hafızada tutmak için session_state başlatıyoruz
+# Açık olan sektörleri hafızada tutuyoruz
 if 'acik_sektorler' not in st.session_state:
     st.session_state.acik_sektorler = set()
 
@@ -89,11 +89,10 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- DİNAMİK AÇILIR KAPANIR TABLO MANTIĞI ---
-        st.subheader("📋 Yatırım ve Proje İzleme Tablosu")
-        st.info("Aşağıdaki listeden ana iş kalemlerinin üzerine tıklayarak alt projelerini Excel düzeninde açıp kapatabilirsiniz.")
+        # --- BUTON KONTROLLÜ PİVOT ALANI ---
+        st.subheader("📋 Yatırım ve Proje İzleme Paneli")
         
-        # Ana başlıkları tespit et
+        # Sektör başlıklarını çek
         ana_isler = []
         for x in data[s_etiket].fillna("").astype(str):
             x_temiz = x.strip()
@@ -101,22 +100,33 @@ if os.path.exists(excel_yolu):
                 if x_temiz not in ana_isler:
                     ana_isler.append(x_temiz)
         
-        # Tablo satırlarını dinamik oluşturma
-        final_rows = []
+        # Tablonun üstüne kontrol butonlarını diziyoruz (Yan yana şık butonlar)
+        st.write("📂 **Sektör Detaylarını Aç / Kapat:**")
+        cols_buttons = st.columns(len(ana_isler))
         
+        for idx, sektor in enumerate(ana_isler):
+            with cols_buttons[idx]:
+                # Sektörün durumuna göre buton ismi belirle
+                durum = "🔴 Kapat" if sektor in st.session_state.acik_sektorler else "🟢 Aç"
+                if st.button(f"{sektor}\n({durum})", key=f"btn_{idx}"):
+                    if sektor in st.session_state.acik_sektorler:
+                        st.session_state.acik_sektorler.remove(sektor)
+                    else:
+                        st.session_state.acik_sektorler.add(sektor)
+                    st.rerun()
+        
+        # Dinamik satırları oluşturma
+        final_rows = []
         for idx, row in data.iterrows():
             val = str(row[s_etiket]).strip()
             
-            # Eğer satır bir ana başlıksa
             if val in ana_isler:
-                # Açık mı kapalı mı kontrol et, başına işaret koy
                 durum_isareti = "▼" if val in st.session_state.acik_sektorler else "►"
-                
                 yeni_satir = row.copy()
-                yeni_satir[s_etiket] = f"{durum_isareti} {val} (ANA BAŞLIK)"
+                yeni_satir[s_etiket] = f"{durum_isareti} {val}"
                 final_rows.append(yeni_satir)
                 
-                # Eğer bu ana başlık açıksa, altına gelecek alt işleri Excel sırasına göre ekle
+                # Eğer butonla açıldıysa alt projeleri ekle
                 if val in st.session_state.acik_sektorler:
                     idx_list = data.index.tolist()
                     start_pos = idx_list.index(idx)
@@ -127,20 +137,17 @@ if os.path.exists(excel_yolu):
                             break
                         
                         sub_row = data.loc[p].copy()
-                        sub_row[s_etiket] = f"    └── {sub_val}" # Sağa hizalı alt proje görüntüsü
+                        sub_row[s_etiket] = f"        └── {sub_val}"
                         final_rows.append(sub_row)
                         
-            # Toplam satırlarını doğrudan ekle (her zaman görünür kalsın)
             elif "Toplam" in val or "TOPLAM" in val:
                 final_rows.append(row)
                 
-        # Tabloyu dataframe formatına geri dönüştür
+        # Tabloyu bas
         if final_rows:
             display_df = pd.DataFrame(final_rows)
-            
-            # Sayı formatlamalarını uygula
             final_display = pd.DataFrame()
-            final_display["İŞİN ADI / GRUBU"] = display_df[s_etiket]
+            final_display["İŞİN ADI / SEKTÖRÜ"] = display_df[s_etiket]
             final_display[s_basi] = display_df['Basi_Num'].apply(tr_format)
             final_display[s_revize] = display_df['Revize_Num'].apply(tr_format)
             final_display[s_harcama] = display_df['Harcama_Num'].apply(tr_format)
@@ -149,20 +156,7 @@ if os.path.exists(excel_yolu):
             for col in columns:
                 if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                     final_display[col] = display_df[col].fillna("").astype(str)
-            
-            # --- TIKLAMA ETKİLEŞİMİ (KUTUSUZ, DOĞRUDAN SEÇİM) ---
-            secilen_satirlar = st.multiselect(
-                "Açmak veya Kapatmak İstediğiniz Sektörleri Seçin:",
-                options=ana_isler,
-                default=list(st.session_state.acik_sektorler)
-            )
-            
-            # Hafızayı güncelle ve sayfayı yenile
-            if set(secilen_satirlar) != st.session_state.acik_sektorler:
-                st.session_state.acik_sektorler = set(secilen_satirlar)
-                st.rerun()
-                
-            # Ana Düz Tabloyu Ekrana Bas
+                    
             st.dataframe(final_display, use_container_width=True, hide_index=True)
             
     except Exception as e:
