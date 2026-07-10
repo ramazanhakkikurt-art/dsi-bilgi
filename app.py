@@ -63,30 +63,49 @@ if os.path.exists(excel_yolu):
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
         data['Kalan_Num'] = data['Revize_Num'] - data['Harcama_Num']
         
-        # --- KÜÇÜLTÜLMÜŞ ÖZET METRİKLER (HTML KULLANARAK SAYFAYA SIĞDIRMA) ---
+        # --- ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
-        
         m1, m2, m3, m4 = st.columns(4)
         m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(data['Basi_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{tr_format(data['Revize_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(data['Harcama_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(data['Kalan_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- PASTA GRAFİĞİ (Sektörlere Göre Revize Ödenek Dağılımı) ---
+        # --- TEMİZ PASTA GRAFİĞİ ---
         st.subheader("🍕 Sektörlere Göre Bütçe Dağılımı")
         
-        # Toplam satırlarını grafiğe dahil etmemek için filtrele
         grafik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
         
         if not grafik_data.empty:
+            # %2'den küçük olan küçük dilimleri "Diğer" altında toplayarak karmaşayı bitiriyoruz
+            toplam_revize = grafik_data['Revize_Num'].sum()
+            grafik_data['Yuzde'] = (grafik_data['Revize_Num'] / toplam_revize) * 100
+            
+            ana_sektorler = grafik_data[grafik_data['Yuzde'] >= 2.0].copy()
+            kucuk_sektorler = grafik_data[grafik_data['Yuzde'] < 2.0]
+            
+            if not kucuk_sektorler.empty:
+                diger_satir = pd.DataFrame([{
+                    s_etiket: 'DİĞER KÜÇÜK SEKTÖRLER',
+                    'Revize_Num': kucuk_sektorler['Revize_Num'].sum()
+                }])
+                grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
+            else:
+                grafik_data_final = ana_sektorler
+            
             fig = px.pie(
-                grafik_data, 
+                grafik_data_final, 
                 names=s_etiket, 
-                values='Revize_Num', 
-                title="Sektörlerin Revize Ödenek Payları (%)",
-                hole=0.3 # Şık dursun diye hafif simit grafik formatında
+                values='Revize_Num',
+                hole=0.4
             )
-            fig.update_traces(textinfo='percent+label')
+            
+            # CRITICAL CHANGE: Yazıları kaldırdık, sadece fareyle üstüne gelince (hover) detaylar gözükecek
+            fig.update_traces(
+                textinfo='none', 
+                hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>"
+            )
+            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
             st.plotly_chart(fig, use_container_width=True)
         
         # --- TABLO ALANI ---
@@ -102,14 +121,4 @@ if os.path.exists(excel_yolu):
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
                 
-        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
-        if arama:
-            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
-            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
-        else:
-            st.dataframe(display_data, use_container_width=True, hide_index=True)
-            
-    except Exception as e:
-        st.error(f"Veri işlenirken bir hata oluştu: {e}")
-else:
-    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
+        arama = st.text_input("
