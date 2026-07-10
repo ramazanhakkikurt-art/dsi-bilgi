@@ -99,9 +99,26 @@ if os.path.exists(excel_yolu):
         
         sektorler = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)][s_etiket].unique()
         
-        for  sektor in sektorler:
+        for sektor in sektorler:
             sektor_filtre = data[data[s_etiket] == sektor].copy()
-            s_revize_toplam =  sektor_filtre['Revize_Num'].sum()
-            s_harcama_toplam =  sektor_filtre['Harcama_Num'].sum()
+            s_revize_toplam = sektor_filtre['Revize_Num'].sum()
+            s_harcama_toplam = sektor_filtre['Harcama_Num'].sum()
             
-            with st.expander(f"📁 {sektor
+            with st.expander(f"📁 {sektor} — (Revize: {tr_format(s_revize_toplam)} TL / Harcama: {tr_format(s_harcama_toplam)} TL)"):
+                alt_tablo = pd.DataFrame()
+                alt_tablo[s_etiket] = sektor_filtre[s_etiket].astype(str)
+                alt_tablo[s_basi] =  sektor_filtre['Basi_Num'].apply(tr_format)
+                alt_tablo[s_revize] = sektor_filtre['Revize_Num'].apply(tr_format)
+                alt_tablo[s_harcama] = sektor_filtre['Harcama_Num'].apply(tr_format)
+                alt_tablo[s_kalan] = sektor_filtre['Kalan_Num'].apply(tr_format)
+                
+                for col in columns:
+                    if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                        alt_tablo[col] = sektor_filtre[col].fillna("").astype(str)
+                        
+                st.dataframe(alt_tablo, use_container_width=True, hide_index=True)
+                
+    except Exception as e:
+        st.error(f"Veri işlenirken bir hata oluştu: {e}")
+else:
+    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
