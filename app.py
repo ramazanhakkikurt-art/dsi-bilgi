@@ -121,4 +121,14 @@ if os.path.exists(excel_yolu):
             if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
                 display_data[col] = data[col].fillna("").astype(str)
                 
-        arama = st.text_input("
+        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
+        if arama:
+            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Veri işlenirken bir hata oluştu: {e}")
+else:
+    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
