@@ -78,4 +78,35 @@ if os.path.exists(excel_yolu):
             t_basi = metrik_data['Basi_Num'].sum()
             t_revize = metrik_data['Revize_Num'].sum()
             t_harcama = metrik_data['Harcama_Num'].sum()
-            t_kalan = t_rev
+            t_kalan = t_revize - t_harcama
+
+        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(t_basi)} TL</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{tr_format(t_revize)} TL</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
+        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
+        
+        # --- TABLO ALANI ---
+        st.subheader("🔍 Akıllı İş/Proje Sorgulama")
+        
+        display_data = pd.DataFrame()
+        display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
+        display_data[s_basi] = data['Basi_Num'].apply(tr_format)
+        display_data[s_revize] = data['Revize_Num'].apply(tr_format)
+        display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
+        display_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
+        
+        for col in columns:
+            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                display_data[col] = data[col].fillna("").astype(str)
+                
+        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
+        if arama:
+            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Veri işlenirken bir hata oluştu: {e}")
+else:
+    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
