@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import os
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
@@ -34,12 +33,14 @@ def tr_format(val):
 
 if os.path.exists(excel_yolu):
     try:
+        # Excel'deki tüm hiyerarşiyi ham haliyle düz tablo olarak alıyoruz
         df = pd.read_excel(excel_yolu, sheet_name=None, header=None)
         sayfalar = list(df.keys())
         
         secilen_sayfa = st.sidebar.selectbox("Görüntülenecek Sayfa/Veri Seti", sayfalar)
         raw_data = df[secilen_sayfa].dropna(how='all')
         
+        # Başlık satırını yakala
         header_row_idx = 0
         for idx, row in raw_data.iterrows():
             if row.astype(str).str.contains('Satır Etiketleri|İŞİN TÜRÜ').any():
@@ -58,6 +59,12 @@ if os.path.exists(excel_yolu):
         s_harcama = [c for c in columns if 'HARCAMA' in c][0]
         s_kalan = [c for c in columns if 'KALAN' in c or 'ÖDENEĞİ KALAN' in c][0]
         
+        # Sayısal dönüşümler (Sadece üst metriklerin doğru toplanması için)
+        # Toplam satırlarını çift saymamak için filtreleyerek metrikleri hesaplıyoruz
+        metrik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
+        
+        # Eğer Excel hem ana işi hem alt işi alt alta barındırıyorsa, mükerrer toplamı engellemek için kontrol
+        # Bu kod ham tablonun yapısını bozmadan metrikleri güvenli hesaplar
         data['Basi_Num'] = data[s_basi].apply(temiz_sayi_yap)
         data['Revize_Num'] = data[s_revize].apply(temiz_sayi_yap)
         data['Harcama_Num'] = data[s_harcama].apply(temiz_sayi_yap)
@@ -66,51 +73,31 @@ if os.path.exists(excel_yolu):
         # --- ÖZET METRİKLER ---
         st.subheader("💰 Genel Ödenek ve Harcama Özeti")
         m1, m2, m3, m4 = st.columns(4)
-        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(data['Basi_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
-        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{tr_format(data['Revize_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
-        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(data['Harcama_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
-        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(data['Kalan_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- TEMİZ PASTA GRAFİĞİ ---
-        st.subheader("🍕 Sektörlere Göre Bütçe Dağılımı")
+        # Sadece ana toplam satırı varsa onu al, yoksa altların toplamını al
+        toplam_satiri = data[data[s_etiket].astype(str).str.contains('Genel Toplam|GENEL TOPLAM', case=False)]
+        if not toplam_satiri.empty:
+            t_basi = temiz_sayi_yap(toplam_satiri[s_basi].values[0])
+            t_revize = temiz_sayi_yap(toplam_satiri[s_revize].values[0])
+            t_harcama = temiz_sayi_yap(toplam_satiri[s_harcama].values[0])
+            t_kalan = t_revize - t_harcama
+        else:
+            t_basi = metrik_data['Basi_Num'].sum()
+            t_revize = metrik_data['Revize_Num'].sum()
+            t_harcama = metrik_data['Harcama_Num'].sum()
+            t_kalan = t_revize - t_harcama
+
+        m1.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Sene Başı Ödeneği</h4><h3 style='color:#38bdf8; font-size:20px;'>{tr_format(t_basi)} TL</h3></div>", unsafe_allow_html=True)
+        m2.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Revize Ödenek</h4><h3 style='color:#fbbf24; font-size:20px;'>{tr_format(t_revize)} TL</h3></div>", unsafe_allow_html=True)
+        m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(t_harcama)} TL</h3></div>", unsafe_allow_html=True)
+        m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(t_kalan)} TL</h3></div>", unsafe_allow_html=True)
         
-        grafik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
-        
-        if not grafik_data.empty:
-            # %2'den küçük olan küçük dilimleri "Diğer" altında toplayarak karmaşayı bitiriyoruz
-            toplam_revize = grafik_data['Revize_Num'].sum()
-            grafik_data['Yuzde'] = (grafik_data['Revize_Num'] / toplam_revize) * 100
-            
-            ana_sektorler = grafik_data[grafik_data['Yuzde'] >= 2.0].copy()
-            kucuk_sektorler = grafik_data[grafik_data['Yuzde'] < 2.0]
-            
-            if not kucuk_sektorler.empty:
-                diger_satir = pd.DataFrame([{
-                    s_etiket: 'DİĞER KÜÇÜK SEKTÖRLER',
-                    'Revize_Num': kucuk_sektorler['Revize_Num'].sum()
-                }])
-                grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
-            else:
-                grafik_data_final = ana_sektorler
-            
-            fig = px.pie(
-                grafik_data_final, 
-                names=s_etiket, 
-                values='Revize_Num',
-                hole=0.4
-            )
-            
-            # CRITICAL CHANGE: Yazıları kaldırdık, sadece fareyle üstüne gelince (hover) detaylar gözükecek
-            fig.update_traces(
-                textinfo='none', 
-                hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>"
-            )
-            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
-            st.plotly_chart(fig, use_container_width=True)
-        
-        # --- TABLO ALANI ---
+        # --- TEK PARÇA BÜYÜK GÖRSEL TABLO ---
         st.subheader("🔍 Akıllı İş/Proje Sorgulama")
+        
         display_data = pd.DataFrame()
+        
+        # Excel'deki metin yapısını (boşlukları ve alt işleri) aynen koruyarak aktar formatla
         display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
         display_data[s_basi] = data['Basi_Num'].apply(tr_format)
         display_data[s_revize] = data['Revize_Num'].apply(tr_format)
