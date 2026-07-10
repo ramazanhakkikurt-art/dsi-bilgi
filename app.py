@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 import os
 
 st.set_page_config(page_title="DSİ 18. Bölge Müdürlüğü Yatırım İzleme Paneli", layout="wide")
@@ -70,4 +71,64 @@ if os.path.exists(excel_yolu):
         m3.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Yılı Harcaması</h4><h3 style='color:#34d399; font-size:20px;'>{tr_format(data['Harcama_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         m4.markdown(f"<div style='background-color:#1e293b; padding:15px; border-radius:10px;'><h4>Kalan Ödenek</h4><h3 style='color:#f87171; font-size:20px;'>{tr_format(data['Kalan_Num'].sum())} TL</h3></div>", unsafe_allow_html=True)
         
-        # --- İLK BEĞENDİĞİN B
+        # --- TEMİZ PASTA GRAFİĞİ ---
+        st.subheader("🍕 Sektörlere Göre Bütçe Dağılımı")
+        
+        grafik_data = data[~data[s_etiket].astype(str).str.contains('Toplam|TOPLAM|Grand Total', case=False)].copy()
+        
+        if not grafik_data.empty:
+            # %2'den küçük olan küçük dilimleri "Diğer" altında toplayarak karmaşayı bitiriyoruz
+            toplam_revize = grafik_data['Revize_Num'].sum()
+            grafik_data['Yuzde'] = (grafik_data['Revize_Num'] / toplam_revize) * 100
+            
+            ana_sektorler = grafik_data[grafik_data['Yuzde'] >= 2.0].copy()
+            kucuk_sektorler = grafik_data[grafik_data['Yuzde'] < 2.0]
+            
+            if not kucuk_sektorler.empty:
+                diger_satir = pd.DataFrame([{
+                    s_etiket: 'DİĞER KÜÇÜK SEKTÖRLER',
+                    'Revize_Num': kucuk_sektorler['Revize_Num'].sum()
+                }])
+                grafik_data_final = pd.concat([ana_sektorler, diger_satir], ignore_index=True)
+            else:
+                grafik_data_final = ana_sektorler
+            
+            fig = px.pie(
+                grafik_data_final, 
+                names=s_etiket, 
+                values='Revize_Num',
+                hole=0.4
+            )
+            
+            # CRITICAL CHANGE: Yazıları kaldırdık, sadece fareyle üstüne gelince (hover) detaylar gözükecek
+            fig.update_traces(
+                textinfo='none', 
+                hovertemplate="<b>%{label}</b><br>Ödenek: %{value:,.2f} TL<br>Pay: %{percent}<extra></extra>"
+            )
+            fig.update_layout(legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5))
+            st.plotly_chart(fig, use_container_width=True)
+        
+        # --- TABLO ALANI ---
+        st.subheader("🔍 Akıllı İş/Proje Sorgulama")
+        display_data = pd.DataFrame()
+        display_data[s_etiket] = data[s_etiket].fillna("").astype(str)
+        display_data[s_basi] = data['Basi_Num'].apply(tr_format)
+        display_data[s_revize] = data['Revize_Num'].apply(tr_format)
+        display_data[s_harcama] = data['Harcama_Num'].apply(tr_format)
+        display_data[s_kalan] = data['Kalan_Num'].apply(tr_format)
+        
+        for col in columns:
+            if col not in [s_etiket, s_basi, s_revize, s_harcama, s_kalan]:
+                display_data[col] = data[col].fillna("").astype(str)
+                
+        arama = st.text_input("Aramak istediğiniz işin adı, yeri veya türünü yazın:")
+        if arama:
+            mask = display_data.apply(lambda x: x.astype(str).str.contains(arama, case=False)).any(axis=1)
+            st.dataframe(display_data[mask], use_container_width=True, hide_index=True)
+        else:
+            st.dataframe(display_data, use_container_width=True, hide_index=True)
+            
+    except Exception as e:
+        st.error(f"Veri işlenirken bir hata oluştu: {e}")
+else:
+    st.error("Harcama.xlsx dosyası sistemde bulunamadı.")
